@@ -48,7 +48,8 @@ def _track_label(item: dict[str, Any] | None) -> str | None:
     media = item.get("media_item") or item
     name = media.get("name") or item.get("name")
     artists = media.get("artists") or []
-    artist = artists[0].get("name") if artists else media.get("artist")
+    first = artists[0] if artists else None
+    artist = (first.get("name") if isinstance(first, dict) else first) if first else media.get("artist")
     if name and artist:
         return f"{artist} - {name}"
     return name
@@ -390,7 +391,8 @@ class DJEngine:
                 "ok": False,
                 "error": "No Music Assistant player available to start radio on.",
             }
-        _LOGGER.info("Starting radio on player %s", player)
+        _LOGGER.info("Starting radio on player %s — clearing queue", player)
+        await self._ma.clear_queue()
         return await self._run_decision(
             reason="start_radio", play_option="play", fresh_start=True
         )
