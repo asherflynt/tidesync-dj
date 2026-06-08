@@ -53,6 +53,13 @@ def _track_label(item: dict[str, Any] | None) -> str | None:
     return name
 
 
+def _track_uri(item: dict[str, Any] | None) -> str | None:
+    if not item:
+        return None
+    media = item.get("media_item") or item
+    return media.get("uri") or item.get("uri")
+
+
 class DJEngine:
     def __init__(
         self,
@@ -73,6 +80,9 @@ class DJEngine:
         self.recent_skips: list[dict[str, Any]] = []
         self.session_started = time.monotonic()
         self.stats = {"tracks_played": 0, "skips": 0, "discoveries": 0}
+        # Ordered, de-duplicated track URIs seen this session (for "save as
+        # playlist"). dict preserves insertion order and dedupes by key.
+        self._session_uris: dict[str, None] = {}
 
         self._current_track_id: str | None = None
         self._current_track_started = time.monotonic()
@@ -176,6 +186,15 @@ class DJEngine:
         self._current_track_id = track_id
         self._current_track_started = time.monotonic()
         self._last_current = current
+        self._remember_uri(_track_uri(current))
+
+    def _remember_uri(self, uri: str | None) -> None:
+        if uri:
+            self._session_uris[uri] = None
+
+    @property
+    def current_uri(self) -> str | None:
+        return _track_uri(self._last_current)
 
     # ------------------------------------------------------------------ #
     # Decision cycle
@@ -219,6 +238,8 @@ class DJEngine:
             enqueued = await self._ma.enqueue_queries(queries, option=play_option)
             if play_option == "play":
                 await self._ma.ensure_playing()
+            for track in enqueued:
+                self._remember_uri(track.get("uri"))
             self.stats["discoveries"] += len(enqueued)
 
             entry = {
@@ -319,6 +340,56 @@ class DJEngine:
         return {"ok": True, "track_count": len(tracks), "summary": summary}
 
     # ------------------------------------------------------------------ #
+    # Tidal: like a track / save the session as a playlist
+    # ------------------------------------------------------------------ #
+    async def like_current(self) -> dict[str, Any]:
+        """Favorite the currently playing track (syncs to Tidal via MA)."""
+        uri = self.current_uri
+        if not uri:
+            # Fall back to the live queue if we haven't cached a current item.
+            try:
+                queue = await self._ma.get_queue()
+                uri = _track_uri(queue.get("current_item"))
+            except Exception:  # noqa: BLE001
+                uri = None
+        if not uri:
+            return {"ok": False, "error": "Nothing is playing to like."}
+        try:
+            await self._ma.add_favorite(uri)
+        except Exception as err:  # noqa: BLE001
+            return {"ok": False, "error": f"Music Assistant rejected the like: {err}"}
+        return {"ok": True, "liked": _track_label(self._last_current) or uri}
+
+    async def save_session_playlist(self, name: str) -> dict[str, Any]:
+        """Create a Tidal playlist from the tracks heard this session."""
+        uris = list(self._session_uris.keys())
+        if not uris:
+            return {"ok": False, "error": "No tracks have played yet this session."}
+        name = name.strip() or datetime.now().strftime("TideSync %Y-%m-%d %H:%M")
+        try:
+            playlist = await self._ma.create_playlist(
+                name, provider=self._config.tidal_provider
+            )
+        except Exception as err:  # noqa: BLE001
+            return {
+                "ok": False,
+                "error": f"Could not create the playlist in Music Assistant: {err}",
+            }
+        playlist_id = playlist.get("item_id") or playlist.get("uri")
+        if not playlist_id:
+            return {"ok": False, "error": "Playlist was created but has no usable id."}
+        try:
+            await self._ma.add_playlist_tracks(playlist_id, uris)
+        except Exception as err:  # noqa: BLE001
+            return {
+                "ok": False,
+                "error": f"Playlist '{name}' created, but adding tracks failed: {err}",
+                "playlist": name,
+            }
+        _LOGGER.info("Saved session playlist '%s' with %d tracks", name, len(uris))
+        return {"ok": True, "playlist": name, "track_count": len(uris)}
+
+    # ------------------------------------------------------------------ #
     # Read-only views for the API/UI
     # ------------------------------------------------------------------ #
     async def status(self) -> dict[str, Any]:
@@ -337,6 +408,10 @@ class DJEngine:
             "ma_host": self._config.ma_host,
             "selected_player_id": self._ma.selected_player_id,
             "taste_seeded": self._taste.is_bootstrapped,
+            "session_track_count": len(self._session_uris),
+            "can_like": bool(
+                _track_uri(queue.get("current_item")) or self.current_uri
+            ),
             "session_minutes": round((time.monotonic() - self.session_started) / 60),
             "stats": self.stats,
             "model": self._config.claude_model,

@@ -36,3 +36,9 @@ configuration:
       Optional input_text.* helper to poll for the active vibe, so you can set
       it from any HA dashboard or phone (e.g. input_text.tidesync_vibe). Leave
       blank to set the vibe only from the add-on panel.
+  tidal_provider:
+    name: Tidal provider (advanced)
+    description: >-
+      The Music Assistant music-provider used when saving a session as a
+      playlist and when liking tracks. Defaults to "tidal"; only change this if
+      your MA Tidal provider uses a different instance id.

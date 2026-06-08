@@ -77,8 +77,24 @@ Secrets are managed by Home Assistant — no `.env` file. Options are read from
 | `POST` | `/players/select` | Choose a player: `{"player_id": "..."}` |
 | `POST` | `/start_radio` | Start playback with a fresh AI-picked set |
 | `POST` | `/seed` | Seed taste from a YouTube Music playlist: `{"playlist": "<url>"}` |
+| `POST` | `/like` | Like the current track in Tidal |
+| `POST` | `/save_playlist` | Save the session's tracks as a Tidal playlist: `{"name": "..."}` |
 | `POST` | `/tick` | Manually trigger a decision cycle |
 | `GET`  | `/history` | Recent DJ decisions |
+
+### Like tracks & save the session to Tidal
+
+- **♥ Like in Tidal** (on the Now Playing card) favorites the current track.
+  This goes through Music Assistant's favorites, which syncs to the Tidal
+  provider.
+- **Save Session as a Tidal Playlist** creates a new Tidal playlist from every
+  track heard this session. The target provider is the `tidal_provider` option
+  (default `tidal`).
+
+> These rely on Music Assistant's favorites/playlist commands and the Tidal
+> provider supporting library edits. If your MA version names these commands
+> differently, they're centralized as `CMD_FAVORITE_ADD`,
+> `CMD_PLAYLIST_CREATE`, and `CMD_PLAYLIST_ADD_TRACKS` in `app/ma_client.py`.
 
 ### Players & Start Radio
 

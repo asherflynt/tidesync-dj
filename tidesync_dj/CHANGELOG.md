@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- **Like in Tidal**: favorite the current track from the dashboard (`/like`),
+  via Music Assistant's favorites (syncs to the Tidal provider).
+- **Save session as a Tidal playlist**: create a Tidal playlist from every track
+  heard this session (`/save_playlist`). New `tidal_provider` option (default
+  `tidal`) selects the MA provider used for likes/playlists.
+- The engine now tracks the ordered set of session track URIs for playlist save.
+
 ## 0.2.0
 
 - **Player selection**: list Music Assistant players and choose which one the DJ

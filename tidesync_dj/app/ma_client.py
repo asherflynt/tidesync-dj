@@ -36,6 +36,10 @@ CMD_NEXT = "players/cmd/next"
 CMD_PLAY = "players/cmd/play"
 CMD_SEARCH = "music/search"
 CMD_LIBRARY_TRACKS = "music/tracks/library_items"
+# Favorites + playlist management (used for "like" and "save session").
+CMD_FAVORITE_ADD = "music/favorites/add_item"
+CMD_PLAYLIST_CREATE = "music/playlists/create_playlist"
+CMD_PLAYLIST_ADD_TRACKS = "music/playlists/add_playlist_tracks"
 
 # Event types we care about.
 EVENT_QUEUE_UPDATED = "queue_updated"
@@ -345,3 +349,38 @@ class MusicAssistantClient:
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("get_library_tracks failed: %s", err)
             return []
+
+    # ------------------------------------------------------------------ #
+    # Favorites + playlists (Tidal sync via MA)
+    # ------------------------------------------------------------------ #
+    async def add_favorite(self, uri: str) -> bool:
+        """Favorite a track in MA, which syncs to the source provider (Tidal)."""
+        if not uri:
+            return False
+        try:
+            await self._command(CMD_FAVORITE_ADD, item=uri)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("add_favorite failed for %s: %s", uri, err)
+            raise
+
+    async def create_playlist(
+        self, name: str, provider: str | None = None
+    ) -> dict[str, Any]:
+        """Create a playlist on the given provider (e.g. 'tidal').
+
+        Returns the created playlist object (carries item_id / uri).
+        """
+        args: dict[str, Any] = {"name": name}
+        if provider:
+            args["provider_instance_or_domain"] = provider
+        result = await self._command(CMD_PLAYLIST_CREATE, **args)
+        return result or {}
+
+    async def add_playlist_tracks(self, playlist_id: str, uris: list[str]) -> None:
+        """Append tracks (by uri) to an existing library playlist."""
+        if not playlist_id or not uris:
+            return
+        await self._command(
+            CMD_PLAYLIST_ADD_TRACKS, db_playlist_id=playlist_id, uris=uris
+        )

@@ -89,6 +89,10 @@
     <h2>Now Playing</h2>
     <div class="now" id="nowPlaying">—</div>
     <small id="meta"></small>
+    <div class="row" style="margin-top:12px">
+      <button class="ghost" id="likeBtn" disabled>♥ Like in Tidal</button>
+      <span id="likeMsg" class="empty"></span>
+    </div>
   </div>
 
   <div class="card">
@@ -139,6 +143,19 @@
   </div>
 
   <div class="card">
+    <h2>Save Session as a Tidal Playlist</h2>
+    <small class="empty" style="display:block;margin-bottom:10px">
+      Saves the <span id="sessionCount">0</span> track(s) heard this session to a
+      new playlist in Tidal (via Music Assistant).
+    </small>
+    <div class="row">
+      <input type="text" id="playlistName" placeholder="Playlist name (optional)" />
+      <button id="savePlaylist">Save to Tidal</button>
+    </div>
+    <small id="saveMsg" class="empty" style="display:block;margin-top:8px"></small>
+  </div>
+
+  <div class="card">
     <h2>DJ Decision Log</h2>
     <div class="log" id="log"><div class="empty">No decisions yet.</div></div>
   </div>
@@ -184,6 +201,8 @@
       document.getElementById("sPlayed").textContent = s.stats.tracks_played;
       document.getElementById("sSkips").textContent = s.stats.skips;
       document.getElementById("sDisc").textContent = s.stats.discoveries;
+      document.getElementById("sessionCount").textContent = s.session_track_count || 0;
+      document.getElementById("likeBtn").disabled = !s.can_like;
     } catch (e) {
       document.getElementById("conn").classList.remove("on");
     }
@@ -273,6 +292,30 @@
         : `Seed failed: ${r.error || "unknown error"}`;
     } catch (err) { msg.textContent = "Seed failed."; }
     finally { e.target.disabled = false; e.target.textContent = "Seed"; }
+  });
+
+  document.getElementById("likeBtn").addEventListener("click", async (e) => {
+    const msg = document.getElementById("likeMsg");
+    e.target.disabled = true;
+    try {
+      const r = await postJSON("/like");
+      msg.textContent = r.ok ? `♥ Liked ${r.liked || "track"}` : (r.error || "Like failed");
+    } catch (err) { msg.textContent = "Like failed."; }
+    finally { e.target.disabled = false; }
+  });
+
+  document.getElementById("savePlaylist").addEventListener("click", async (e) => {
+    const name = document.getElementById("playlistName").value.trim();
+    const msg = document.getElementById("saveMsg");
+    e.target.disabled = true; e.target.textContent = "Saving…";
+    msg.textContent = "Creating the playlist in Tidal…";
+    try {
+      const r = await postJSON("/save_playlist", { name });
+      msg.textContent = r.ok
+        ? `Saved “${r.playlist}” with ${r.track_count} track(s).`
+        : `Couldn't save: ${r.error || "unknown error"}`;
+    } catch (err) { msg.textContent = "Save failed."; }
+    finally { e.target.disabled = false; e.target.textContent = "Save to Tidal"; }
   });
 
   refreshStatus(); refreshLog(); refreshPlayers();

@@ -67,6 +67,10 @@ class SeedBody(BaseModel):
     playlist: str
 
 
+class SavePlaylistBody(BaseModel):
+    name: str = ""
+
+
 def _engine(request: Request) -> DJEngine:
     return request.app.state.engine
 
@@ -135,6 +139,18 @@ async def start_radio(request: Request):
 async def seed(request: Request, body: SeedBody):
     result = await _engine(request).seed_from_playlist(body.playlist.strip())
     return JSONResponse(result, status_code=200 if result.get("ok") else 400)
+
+
+@app.post("/like")
+async def like(request: Request):
+    result = await _engine(request).like_current()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.post("/save_playlist")
+async def save_playlist(request: Request, body: SavePlaylistBody):
+    result = await _engine(request).save_session_playlist(body.name)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
 
 
 @app.get("/history")

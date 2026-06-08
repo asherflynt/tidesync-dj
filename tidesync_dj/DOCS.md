@@ -37,6 +37,10 @@ You need:
 - Type a **vibe** ("late night focus", "high energy cooking") in the panel and
   click **Set Vibe** to steer the mood.
 - Click **Nudge DJ** to force a decision immediately.
+- Click **♥ Like in Tidal** on the Now Playing card to favorite the current
+  track (synced to Tidal through Music Assistant).
+- Use **Save Session as a Tidal Playlist** to save everything you've heard this
+  session to a new Tidal playlist.
 - The **decision log** shows Claude's reasoning for each pick.
 
 ## Seed your taste from a YouTube Music playlist
@@ -71,5 +75,9 @@ Claude to build your taste profile from them.
   provider) is connected and working in MA.
 - **Seeding fails** — the YouTube Music playlist must be **public**. Double-check
   the URL contains a `list=` parameter.
+- **Like / Save playlist fails** — these need Music Assistant's favorites and
+  playlist commands plus a Tidal provider that allows library edits. Check the
+  add-on **Log** tab for the exact error; the command names live in
+  `app/ma_client.py` if your MA version differs.
 - **Music Assistant command errors** — MA's WebSocket command names can vary by
   version; they're centralized in `app/ma_client.py` (`CMD_*` constants).

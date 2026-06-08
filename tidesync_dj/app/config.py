@@ -24,6 +24,7 @@ class Config:
     dj_tick_interval: int
     skip_penalty_seconds: int
     vibe_input_text_entity: str | None
+    tidal_provider: str
     data_dir: Path
 
     @property
@@ -59,5 +60,6 @@ def load_config() -> Config:
         dj_tick_interval=int(_get("dj_tick_interval", 30)),
         skip_penalty_seconds=int(_get("skip_penalty_seconds", 30)),
         vibe_input_text_entity=vibe_entity or None,
+        tidal_provider=str(_get("tidal_provider", "") or "tidal"),
         data_dir=DATA_DIR,
     )

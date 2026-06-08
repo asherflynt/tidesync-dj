@@ -1,5 +1,5 @@
 name: TideSync DJ
-version: "0.2.0"
+version: "0.3.0"
 slug: tidesync_dj
 description: AI-powered Tidal DJ using Music Assistant and Claude
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj
@@ -22,6 +22,7 @@ options:
   dj_tick_interval: 30
   skip_penalty_seconds: 30
   vibe_input_text_entity: ""
+  tidal_provider: "tidal"
 schema:
   anthropic_api_key: str
   claude_model: list(claude-sonnet-4-6|claude-opus-4-8|claude-haiku-4-5)
@@ -30,3 +31,4 @@ schema:
   dj_tick_interval: int
   skip_penalty_seconds: int
   vibe_input_text_entity: str?
+  tidal_provider: str?
