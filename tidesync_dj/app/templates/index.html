@@ -2,90 +2,152 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=1920, initial-scale=1" />
 <title>TideSync DJ</title>
 <style>
   :root {
-    --bg: #0e1116; --panel: #171b22; --panel2: #1e242d;
+    --bg: #0a0d12; --panel: #141820; --panel2: #1a1f2a;
     --text: #e6e9ef; --muted: #8b94a3; --accent: #4cc2ff; --accent2: #ff5da2;
-    --border: #262d38; --danger: #ff6b6b;
+    --border: #232b38; --danger: #ff6b6b;
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  html, body {
+    margin: 0; width: 1920px; height: 1080px; overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg); color: var(--text); line-height: 1.45;
   }
-  header {
-    padding: 14px 22px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 12px;
+
+  /* ── Layout ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 520px 1fr;
+    height: 1080px;
   }
-  header h1 { font-size: 18px; margin: 0; font-weight: 650; }
-  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #555; flex: 0 0 auto; }
-  header .dot.on { background: #34d399; box-shadow: 0 0 8px #34d399; }
-  header .dot.connecting { background: #f0b94c; box-shadow: 0 0 8px #f0b94c;
+
+  /* ── Left panel ── */
+  .left {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 28px 32px 28px;
+    overflow: hidden;
+    height: 1080px;
+  }
+
+  .left-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex: 0 0 auto;
+  }
+  .left-header h1 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -.3px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #555; flex: 0 0 auto; }
+  .dot.on { background: #34d399; box-shadow: 0 0 8px #34d399; }
+  .dot.connecting { background: #f0b94c; box-shadow: 0 0 8px #f0b94c;
     animation: pulse 1.1s ease-in-out infinite; }
-  header .conn-text { font-size: 13px; color: var(--muted); }
-  header .conn-text.connecting { color: #f0b94c; }
-  header .conn-text.on { color: #34d399; }
-  header .model-pill { margin-left: auto; display: inline-block; background: var(--panel2);
-    border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px;
-    color: var(--muted); font-size: 12px; }
+  .conn-text { font-size: 13px; color: var(--muted); }
+  .conn-text.connecting { color: #f0b94c; }
+  .conn-text.on { color: #34d399; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-  .wrap { max-width: 920px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
-  .card h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
-    color: var(--muted); margin: 0 0 12px; }
-
-  /* Now Playing */
-  .now-wrap { display: flex; gap: 18px; align-items: center; }
-  .album-art { width: 110px; height: 110px; border-radius: 10px; object-fit: cover;
-    flex: 0 0 110px; background: var(--panel2); display: none; }
+  /* Album art — flex-grow so it fills remaining vertical space */
+  .art-wrap {
+    width: 100%;
+    flex: 1 1 0;
+    min-height: 0;
+    border-radius: 18px; overflow: hidden;
+    background: var(--panel2);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.5);
+  }
+  .album-art {
+    width: 100%; height: 100%; object-fit: cover;
+    display: none;
+  }
   .album-art.visible { display: block; }
-  .album-placeholder { width: 110px; height: 110px; border-radius: 10px;
-    background: var(--panel2); flex: 0 0 110px; display: flex; align-items: center;
-    justify-content: center; font-size: 36px; color: var(--muted); }
-  .now-text { flex: 1; min-width: 0; }
-  .now-title { font-size: 20px; font-weight: 600; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; }
-  .now-meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
-  .now-controls { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  .art-placeholder { font-size: 96px; color: var(--border); }
 
-  /* Playback buttons */
+  /* Track info */
+  .track-title {
+    font-size: 26px; font-weight: 700; line-height: 1.25;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 6px; flex: 0 0 auto;
+  }
+  .track-meta { color: var(--muted); font-size: 14px; margin-bottom: 18px; flex: 0 0 auto; }
+
+  /* Playback controls */
+  .controls {
+    display: flex; gap: 12px; align-items: center; margin-bottom: 18px; flex: 0 0 auto;
+  }
+  .ctrl-btn {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 20px; font-size: 24px; line-height: 1;
+    cursor: pointer; transition: background .15s;
+  }
+  .ctrl-btn:hover:not(:disabled) { background: #252d3a; }
+  .ctrl-btn:disabled { opacity: 0.45; cursor: default; }
+  .ctrl-btn.like-btn { font-size: 18px; padding: 14px 22px; }
+  .like-msg { color: var(--muted); font-size: 13px; }
+
+  /* Vibe pill on left */
+  .vibe-pill {
+    display: inline-block; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 16px; color: var(--accent); font-size: 14px;
+    flex: 0 0 auto; align-self: flex-start;
+  }
+
+  /* model pill */
+  .model-pill {
+    display: inline-block; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 12px; color: var(--muted); font-size: 12px;
+    margin-left: auto;
+  }
+
+  /* ── Right panel ── */
+  .right {
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  .right-scroll {
+    flex: 1; overflow-y: auto; padding: 28px 36px 28px;
+    display: grid; gap: 16px; align-content: start;
+  }
+  .right-scroll::-webkit-scrollbar { width: 6px; }
+  .right-scroll::-webkit-scrollbar-track { background: transparent; }
+  .right-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px 22px; }
+  .card h2 { font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 14px; }
+
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
   input[type=text], select {
     flex: 1; min-width: 200px; background: var(--panel2); border: 1px solid var(--border);
-    color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px;
+    color: var(--text); border-radius: 9px; padding: 11px 14px; font-size: 14px;
   }
   select { cursor: pointer; }
   button {
-    background: var(--accent); color: #04212f; border: 0; border-radius: 8px;
-    padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
-    white-space: nowrap;
+    background: var(--accent); color: #04212f; border: 0; border-radius: 9px;
+    padding: 11px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+    white-space: nowrap; transition: opacity .15s;
   }
   button.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
-  button.icon-btn { padding: 10px 14px; font-size: 18px; line-height: 1; }
   button:disabled { opacity: 0.5; cursor: default; }
   button:not(:disabled):active { transform: translateY(1px); }
 
   /* Stats */
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .stat { background: var(--panel2); border-radius: 10px; padding: 12px; text-align: center; }
-  .stat b { display: block; font-size: 24px; }
+  .stat { background: var(--panel2); border-radius: 10px; padding: 14px; text-align: center; }
+  .stat b { display: block; font-size: 28px; font-weight: 700; }
   .stat span { color: var(--muted); font-size: 12px; }
-
-  /* Vibe pill */
-  .vibe-pill { display: inline-block; background: var(--panel2); border: 1px solid var(--border);
-    border-radius: 999px; padding: 4px 12px; color: var(--accent); font-size: 13px; }
 
   /* Decision log */
   .log { display: grid; gap: 10px; }
-  .entry { background: var(--panel2); border-radius: 10px; padding: 12px 14px;
+  .entry { background: var(--panel2); border-radius: 10px; padding: 13px 15px;
     border-left: 3px solid var(--accent2); }
   .entry .meta { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
-  .entry .note { margin: 6px 0; }
+  .entry .note { margin: 6px 0; font-size: 14px; }
   .entry ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
-  .shift { color: var(--accent2); font-weight: 600; }
+  .shift { color: var(--accent2); font-weight: 600; font-size: 13px; }
   .empty { color: var(--muted); font-size: 13px; }
 
   /* Banners */
@@ -94,114 +156,129 @@
   .banner.warn { background: #2a1d12; border-color: #6b4a25; color: #f4c98a; }
   .banner.info { background: #122433; border-color: #2c5067; color: #9ad0f0; }
   .banner b { color: inherit; }
+
+  /* Two-col cards */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 </style>
 </head>
 <body>
-<header>
-  <span class="dot connecting" id="conn"></span>
-  <span class="conn-text connecting" id="connText">Connecting…</span>
-  <h1>🎧 TideSync DJ</h1>
-  <span class="model-pill" id="model"></span>
-</header>
+<div class="layout">
 
-<div class="wrap">
-  <div class="banner warn" id="setupBanner">
-    <b>Setup needed.</b> No Anthropic API key is configured. Open this add-on's
-    <b>Configuration</b> tab in Home Assistant, paste your <code>sk-ant-…</code> key,
-    click <b>Save</b>, then restart.
-  </div>
-  <div class="banner info" id="maBanner">
-    <b>Waiting for Music Assistant.</b> Not connected to
-    <span id="maHost"></span> yet. <span id="maErr"></span>
-  </div>
+  <!-- ════ LEFT PANEL ════ -->
+  <div class="left">
+    <div class="left-header">
+      <span class="dot connecting" id="conn"></span>
+      <span class="conn-text connecting" id="connText">Connecting…</span>
+      <h1>🎧 TideSync DJ</h1>
+      <span class="model-pill" id="model"></span>
+    </div>
 
-  <!-- Now Playing -->
-  <div class="card">
-    <h2>Now Playing</h2>
-    <div class="now-wrap">
+    <div class="art-wrap">
       <img class="album-art" id="albumArt" alt="Album art" />
-      <div id="albumPlaceholder" class="album-placeholder">♫</div>
-      <div class="now-text">
-        <div class="now-title" id="nowPlaying">—</div>
-        <div class="now-meta" id="meta"></div>
-        <div class="now-controls">
-          <button class="ghost icon-btn" id="pauseBtn" title="Pause / Resume">⏸</button>
-          <button class="ghost icon-btn" id="skipBtn" title="Skip track">⏭</button>
-          <button class="ghost" id="likeBtn" disabled>♥ Like</button>
-          <span id="likeMsg" class="empty"></span>
+      <span class="art-placeholder" id="albumPlaceholder">♫</span>
+    </div>
+
+    <div class="track-title" id="nowPlaying">—</div>
+    <div class="track-meta" id="meta"></div>
+
+    <div class="controls">
+      <button class="ctrl-btn" id="pauseBtn" title="Pause / Resume">⏸</button>
+      <button class="ctrl-btn" id="skipBtn" title="Skip track">⏭</button>
+      <button class="ctrl-btn like-btn" id="likeBtn" disabled title="Like track">♥ Like</button>
+      <span class="like-msg" id="likeMsg"></span>
+    </div>
+
+    <span class="vibe-pill" id="vibePill">no vibe set</span>
+  </div>
+
+  <!-- ════ RIGHT PANEL ════ -->
+  <div class="right">
+    <div class="right-scroll">
+
+      <div class="banner warn" id="setupBanner">
+        <b>Setup needed.</b> No Anthropic API key is configured. Open this add-on's
+        <b>Configuration</b> tab in Home Assistant, paste your <code>sk-ant-…</code> key,
+        click <b>Save</b>, then restart.
+      </div>
+      <div class="banner info" id="maBanner">
+        <b>Waiting for Music Assistant.</b> Not connected to
+        <span id="maHost"></span> yet. <span id="maErr"></span>
+      </div>
+
+      <!-- Playback + Vibe side by side -->
+      <div class="two-col">
+        <div class="card">
+          <h2>Playback</h2>
+          <div class="row">
+            <select id="playerSelect" aria-label="Music Assistant player">
+              <option value="">Loading players…</option>
+            </select>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button id="startRadio" style="width:100%">▶ Start Radio</button>
+          </div>
+          <small id="playbackMsg" class="empty" style="display:block;margin-top:8px"></small>
+        </div>
+
+        <div class="card">
+          <h2>Set Vibe</h2>
+          <div class="row">
+            <input type="text" id="vibeInput" placeholder="e.g. late night focus, high energy cooking" />
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button id="setVibe">Set Vibe</button>
+            <button class="ghost" id="nudge">Nudge DJ</button>
+          </div>
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- Playback / player select -->
-  <div class="card">
-    <h2>Playback</h2>
-    <div class="row">
-      <select id="playerSelect" aria-label="Music Assistant player">
-        <option value="">Loading players…</option>
-      </select>
-      <button id="startRadio">▶ Start Radio</button>
-    </div>
-    <small id="playbackMsg" class="empty" style="display:block;margin-top:8px"></small>
-  </div>
+      <!-- Stats -->
+      <div class="card">
+        <h2>Session Stats</h2>
+        <div class="stats">
+          <div class="stat"><b id="sPlayed">0</b><span>tracks played</span></div>
+          <div class="stat"><b id="sSkips">0</b><span>skips</span></div>
+          <div class="stat"><b id="sDisc">0</b><span>discoveries</span></div>
+        </div>
+      </div>
 
-  <!-- Vibe -->
-  <div class="card">
-    <h2>Active Vibe</h2>
-    <div class="row" style="margin-bottom:10px">
-      <span class="vibe-pill" id="vibePill">no vibe set</span>
-    </div>
-    <div class="row">
-      <input type="text" id="vibeInput" placeholder="e.g. late night focus, high energy cooking" />
-      <button id="setVibe">Set Vibe</button>
-      <button class="ghost" id="nudge">Nudge DJ</button>
-    </div>
-  </div>
+      <!-- Seed + Save side by side -->
+      <div class="two-col">
+        <div class="card">
+          <h2>Seed Taste from YouTube Music</h2>
+          <small class="empty" style="display:block;margin-bottom:10px">
+            Public YouTube Music playlist → taste profile. Playback via Tidal.
+          </small>
+          <div class="row">
+            <input type="text" id="seedInput" placeholder="https://music.youtube.com/playlist?list=…" />
+            <button id="seedBtn">Seed</button>
+          </div>
+          <small id="seedMsg" class="empty" style="display:block;margin-top:8px"></small>
+        </div>
 
-  <!-- Seed -->
-  <div class="card">
-    <h2>Seed Taste from a YouTube Music Playlist</h2>
-    <small class="empty" style="display:block;margin-bottom:10px">
-      Uses a <b>public</b> YouTube Music playlist to build your taste profile.
-      Playback still happens via Tidal in Music Assistant.
-    </small>
-    <div class="row">
-      <input type="text" id="seedInput" placeholder="https://music.youtube.com/playlist?list=…" />
-      <button id="seedBtn">Seed</button>
-    </div>
-    <small id="seedMsg" class="empty" style="display:block;margin-top:8px"></small>
-  </div>
+        <div class="card">
+          <h2>Save Session as Tidal Playlist</h2>
+          <small class="empty" style="display:block;margin-bottom:10px">
+            Save the <span id="sessionCount">0</span> track(s) heard this session.
+          </small>
+          <div class="row">
+            <input type="text" id="playlistName" placeholder="Playlist name (optional)" />
+            <button id="savePlaylist">Save to Tidal</button>
+          </div>
+          <small id="saveMsg" class="empty" style="display:block;margin-top:8px"></small>
+        </div>
+      </div>
 
-  <!-- Stats -->
-  <div class="card">
-    <h2>Session Stats</h2>
-    <div class="stats">
-      <div class="stat"><b id="sPlayed">0</b><span>tracks played</span></div>
-      <div class="stat"><b id="sSkips">0</b><span>skips</span></div>
-      <div class="stat"><b id="sDisc">0</b><span>discoveries</span></div>
-    </div>
-  </div>
+      <!-- Decision log -->
+      <div class="card">
+        <h2>DJ Decision Log</h2>
+        <div class="log" id="log"><div class="empty">No decisions yet.</div></div>
+      </div>
 
-  <!-- Save playlist -->
-  <div class="card">
-    <h2>Save Session as a Tidal Playlist</h2>
-    <small class="empty" style="display:block;margin-bottom:10px">
-      Saves the <span id="sessionCount">0</span> track(s) heard this session to Tidal.
-    </small>
-    <div class="row">
-      <input type="text" id="playlistName" placeholder="Playlist name (optional)" />
-      <button id="savePlaylist">Save to Tidal</button>
-    </div>
-    <small id="saveMsg" class="empty" style="display:block;margin-top:8px"></small>
-  </div>
+    </div><!-- /right-scroll -->
+  </div><!-- /right -->
 
-  <!-- Decision log -->
-  <div class="card">
-    <h2>DJ Decision Log</h2>
-    <div class="log" id="log"><div class="empty">No decisions yet.</div></div>
-  </div>
-</div>
+</div><!-- /layout -->
 
 <script>
   const api = (p) => p.replace(/^\//, "");
@@ -250,7 +327,6 @@
       document.getElementById("maBanner").classList.toggle(
         "show", s.configured !== false && !s.ma_connected);
 
-      // Now playing + album art
       document.getElementById("nowPlaying").textContent = s.now_playing || "—";
       document.getElementById("meta").textContent =
         `${s.time_of_day} · ${s.items_remaining} in queue · ${s.session_minutes} min`;
@@ -274,7 +350,6 @@
       document.getElementById("sessionCount").textContent = s.session_track_count || 0;
       document.getElementById("likeBtn").disabled = !s.can_like;
 
-      // Sync pause button to actual player state
       const isPaused = s.player_state === "paused";
       const pauseBtn = document.getElementById("pauseBtn");
       pauseBtn.textContent = isPaused ? "▶" : "⏸";
@@ -305,7 +380,6 @@
     } catch (e) { /* ignore */ }
   }
 
-  // Pause / resume — icon is synced from player_state in refreshStatus
   document.getElementById("pauseBtn").addEventListener("click", async (e) => {
     e.target.disabled = true;
     try { await postJSON("/pause"); } finally {
@@ -314,7 +388,6 @@
     }
   });
 
-  // Skip (routes through our engine so skip is tracked)
   document.getElementById("skipBtn").addEventListener("click", async (e) => {
     e.target.disabled = true;
     try { await postJSON("/skip"); } finally {
