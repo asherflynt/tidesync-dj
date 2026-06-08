@@ -1,0 +1,7 @@
+build_from:
+  amd64: ghcr.io/home-assistant/amd64-base-python:3.12
+  aarch64: ghcr.io/home-assistant/aarch64-base-python:3.12
+labels:
+  org.opencontainers.image.title: TideSync DJ
+  org.opencontainers.image.description: AI-powered Tidal DJ using Music Assistant and Claude
+  org.opencontainers.image.source: https://github.com/asherflynt/tidesync-dj

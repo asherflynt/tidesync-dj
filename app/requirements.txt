@@ -1,0 +1,8 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+jinja2==3.1.5
+anthropic==0.69.0
+music-assistant-client==1.2.0
+websockets==14.1
+httpx==0.28.1
+pydantic==2.10.4

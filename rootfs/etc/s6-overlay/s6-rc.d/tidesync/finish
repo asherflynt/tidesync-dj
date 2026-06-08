@@ -1,0 +1,20 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# TideSync DJ — service finish script
+# Signals the supervisor to halt the container when the service exits
+# abnormally, so HA reports the add-on as stopped/crashed.
+# ==============================================================================
+declare exit_code="${1}"
+declare exit_code_container="${2}"
+
+bashio::log.info "TideSync DJ service exited (code ${exit_code}/${exit_code_container})"
+
+# 256 => service was killed by a signal (normal stop). Anything else that is
+# non-zero is a real crash; tell S6 to bring the whole container down.
+if [[ "${exit_code_container}" -eq 0 ]]; then
+    bashio::log.info "Clean exit, halting container."
+elif [[ "${exit_code}" -ne 256 ]]; then
+    bashio::log.warning "Service crashed, halting container."
+fi
+
+exec /run/s6/basedir/bin/halt

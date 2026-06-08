@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TideSync DJ</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #171b22; --panel2: #1e242d;
+    --text: #e6e9ef; --muted: #8b94a3; --accent: #4cc2ff; --accent2: #ff5da2;
+    --border: #262d38;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.45;
+  }
+  header {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 650; }
+  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #555; }
+  header .dot.on { background: #34d399; box-shadow: 0 0 8px #34d399; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px;
+  }
+  .card h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 12px; }
+  .now { font-size: 22px; font-weight: 600; }
+  .now small { display: block; color: var(--muted); font-size: 13px; font-weight: 400;
+    margin-top: 4px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  input[type=text] {
+    flex: 1; min-width: 200px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px;
+  }
+  button {
+    background: var(--accent); color: #04212f; border: 0; border-radius: 8px;
+    padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+  button:active { transform: translateY(1px); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat { background: var(--panel2); border-radius: 10px; padding: 12px; text-align: center; }
+  .stat b { display: block; font-size: 24px; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .vibe-pill { display: inline-block; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 12px; color: var(--accent); font-size: 13px; }
+  .log { display: grid; gap: 10px; }
+  .entry { background: var(--panel2); border-radius: 10px; padding: 12px 14px;
+    border-left: 3px solid var(--accent2); }
+  .entry .meta { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+  .entry .note { margin: 6px 0; }
+  .entry ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  .shift { color: var(--accent2); font-weight: 600; }
+  .empty { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="conn"></span>
+  <h1>🎧 TideSync DJ</h1>
+  <span class="vibe-pill" id="model"></span>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <h2>Now Playing</h2>
+    <div class="now" id="nowPlaying">—</div>
+    <small id="meta"></small>
+  </div>
+
+  <div class="card">
+    <h2>Active Vibe</h2>
+    <div class="row" style="margin-bottom:10px">
+      <span class="vibe-pill" id="vibePill">no vibe set</span>
+    </div>
+    <div class="row">
+      <input type="text" id="vibeInput" placeholder="e.g. late night focus, high energy cooking" />
+      <button id="setVibe">Set Vibe</button>
+      <button class="ghost" id="nudge">Nudge DJ</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Session Stats</h2>
+    <div class="stats">
+      <div class="stat"><b id="sPlayed">0</b><span>tracks played</span></div>
+      <div class="stat"><b id="sSkips">0</b><span>skips</span></div>
+      <div class="stat"><b id="sDisc">0</b><span>discoveries</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>DJ Decision Log</h2>
+    <div class="log" id="log"><div class="empty">No decisions yet.</div></div>
+  </div>
+</div>
+
+<script>
+  // Relative URLs so requests work behind the HA ingress path prefix.
+  const api = (p) => p.replace(/^\//, "");
+
+  async function getJSON(path) {
+    const r = await fetch(api(path));
+    if (!r.ok) throw new Error(path + " -> " + r.status);
+    return r.json();
+  }
+  async function postJSON(path, body) {
+    const r = await fetch(api(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : "{}",
+    });
+    return r.json();
+  }
+
+  function esc(s) {
+    return (s == null ? "" : String(s)).replace(/[&<>]/g, c =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  }
+
+  async function refreshStatus() {
+    try {
+      const s = await getJSON("/status");
+      document.getElementById("conn").classList.toggle("on", !!s.ma_connected);
+      document.getElementById("nowPlaying").textContent = s.now_playing || "—";
+      document.getElementById("meta").textContent =
+        `${s.time_of_day} · ${s.items_remaining} in queue · ${s.session_minutes} min session`;
+      document.getElementById("model").textContent = s.model || "";
+      document.getElementById("vibePill").textContent = s.vibe || "no vibe set";
+      document.getElementById("sPlayed").textContent = s.stats.tracks_played;
+      document.getElementById("sSkips").textContent = s.stats.skips;
+      document.getElementById("sDisc").textContent = s.stats.discoveries;
+    } catch (e) {
+      document.getElementById("conn").classList.remove("on");
+    }
+  }
+
+  async function refreshLog() {
+    try {
+      const { decisions } = await getJSON("/history");
+      const el = document.getElementById("log");
+      if (!decisions.length) { el.innerHTML = '<div class="empty">No decisions yet.</div>'; return; }
+      el.innerHTML = decisions.slice(0, 10).map(d => `
+        <div class="entry">
+          <div class="meta"><span>${esc(d.timestamp)} · ${esc(d.reason)}</span>
+            <span>${d.enqueued} queued</span></div>
+          <div class="note">${esc(d.dj_note)}</div>
+          ${d.mood_shift ? `<div class="shift">↳ mood shift: ${esc(d.mood_shift_reason || "")}</div>` : ""}
+          <ul>${(d.tracks || []).map(t => `<li><b>${esc(t.query)}</b> — ${esc(t.reason)}</li>`).join("")}</ul>
+        </div>`).join("");
+    } catch (e) { /* ignore */ }
+  }
+
+  document.getElementById("setVibe").addEventListener("click", async () => {
+    const v = document.getElementById("vibeInput").value.trim();
+    if (!v) return;
+    await postJSON("/vibe", { prompt: v });
+    document.getElementById("vibeInput").value = "";
+    refreshStatus();
+  });
+
+  document.getElementById("nudge").addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.textContent = "Thinking…";
+    try { await postJSON("/tick"); } finally {
+      e.target.disabled = false; e.target.textContent = "Nudge DJ";
+      refreshStatus(); refreshLog();
+    }
+  });
+
+  refreshStatus(); refreshLog();
+  setInterval(refreshStatus, 5000);
+  setInterval(refreshLog, 8000);
+</script>
+</body>
+</html>

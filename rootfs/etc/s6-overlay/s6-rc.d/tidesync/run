@@ -1,0 +1,15 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# TideSync DJ — start the FastAPI service
+# Runs under S6-overlay v3 as a longrun service.
+# ==============================================================================
+
+bashio::log.info "Starting TideSync DJ..."
+
+cd /app || bashio::exit.nok "Could not change to /app"
+
+# uvicorn binds to the ingress_port declared in config.yaml (8099).
+exec python3 -m uvicorn main:app \
+    --host 0.0.0.0 \
+    --port 8099 \
+    --no-access-log

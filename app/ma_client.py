@@ -1,0 +1,282 @@
+"""Music Assistant WebSocket client.
+
+Talks to the Music Assistant add-on over its WebSocket API
+(ws://<ma_host>:<ma_port>/ws). We use raw `websockets` rather than the
+`music-assistant-client` package so the command surface is explicit and the
+reconnect/event behaviour is fully under our control.
+
+Protocol (see https://music-assistant.io/integration/websocket/):
+  * On connect, the server sends a `server_info` message.
+  * Commands are JSON: {"command": "<cmd>", "message_id": "<id>", "args": {...}}
+  * Responses echo the message_id: {"message_id": "<id>", "result": ...}
+    or {"message_id": "<id>", "error_code": ..., "details": ...}
+  * Events are pushed unsolicited: {"event": "<type>", "object_id": ...,
+    "data": ...}
+
+Command names follow MA's documented schema; if your MA version differs,
+adjust the COMMAND_* constants below.
+"""
+from __future__ import annotations
+
+import asyncio
+import itertools
+import logging
+from typing import Any, Awaitable, Callable
+
+import websockets
+
+_LOGGER = logging.getLogger(__name__)
+
+# --- MA command names (centralised so they're easy to tweak per MA version) ---
+CMD_PLAYERS_ALL = "players/all"
+CMD_QUEUES_ALL = "player_queues/all"
+CMD_QUEUE_ITEMS = "player_queues/items"
+CMD_PLAY_MEDIA = "player_queues/play_media"
+CMD_NEXT = "players/cmd/next"
+CMD_SEARCH = "music/search"
+CMD_LIBRARY_TRACKS = "music/tracks/library_items"
+
+# Event types we care about.
+EVENT_QUEUE_UPDATED = "queue_updated"
+EVENT_QUEUE_TIME_UPDATED = "queue_time_updated"
+
+EventCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+
+class MusicAssistantClient:
+    def __init__(self, ws_url: str) -> None:
+        self._ws_url = ws_url
+        self._ws: websockets.WebSocketClientProtocol | None = None
+        self._msg_ids = itertools.count(1)
+        self._pending: dict[str, asyncio.Future] = {}
+        self._event_cb: EventCallback | None = None
+        self._recv_task: asyncio.Task | None = None
+        self._connected = asyncio.Event()
+        self._closing = False
+        self.server_info: dict[str, Any] = {}
+        # Best-guess active queue, refreshed from players/queues.
+        self.active_queue_id: str | None = None
+
+    # ------------------------------------------------------------------ #
+    # Connection lifecycle
+    # ------------------------------------------------------------------ #
+    def on_event(self, cb: EventCallback) -> None:
+        self._event_cb = cb
+
+    async def connect(self) -> None:
+        """Connect once and start the receive loop. Raises on failure."""
+        _LOGGER.info("Connecting to Music Assistant at %s", self._ws_url)
+        self._ws = await websockets.connect(self._ws_url, max_size=None)
+        self._closing = False
+        self._recv_task = asyncio.create_task(self._receive_loop())
+        # Wait for the initial server_info handshake.
+        try:
+            await asyncio.wait_for(self._connected.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            _LOGGER.warning("No server_info received; continuing anyway")
+
+    async def run_forever(self, retry_delay: int = 5) -> None:
+        """Maintain the connection, reconnecting with backoff on drops."""
+        while not self._closing:
+            try:
+                await self.connect()
+                await self.refresh_active_queue()
+                # Block until the receive loop ends (i.e. the socket drops).
+                if self._recv_task:
+                    await self._recv_task
+            except Exception as err:  # noqa: BLE001 - keep the loop alive
+                _LOGGER.warning("MA connection error: %s", err)
+            if self._closing:
+                break
+            self._connected.clear()
+            _LOGGER.info("Reconnecting to MA in %ss", retry_delay)
+            await asyncio.sleep(retry_delay)
+
+    async def _receive_loop(self) -> None:
+        assert self._ws is not None
+        try:
+            async for raw in self._ws:
+                await self._handle_message(raw)
+        except websockets.ConnectionClosed:
+            _LOGGER.info("MA websocket closed")
+        finally:
+            self._fail_pending(ConnectionError("websocket closed"))
+
+    async def _handle_message(self, raw: str | bytes) -> None:
+        import json
+
+        try:
+            msg = json.loads(raw)
+        except ValueError:
+            _LOGGER.debug("Non-JSON MA message ignored")
+            return
+
+        # Handshake.
+        if "server_version" in msg or msg.get("server_id"):
+            self.server_info = msg
+            self._connected.set()
+            return
+
+        # Command response.
+        if "message_id" in msg:
+            fut = self._pending.pop(str(msg["message_id"]), None)
+            if fut and not fut.done():
+                if "error_code" in msg or "error" in msg:
+                    fut.set_exception(
+                        RuntimeError(msg.get("details") or msg.get("error"))
+                    )
+                else:
+                    fut.set_result(msg.get("result"))
+            return
+
+        # Pushed event.
+        if "event" in msg and self._event_cb:
+            await self._event_cb(msg["event"], msg.get("data") or msg)
+
+    def _fail_pending(self, exc: Exception) -> None:
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.set_exception(exc)
+        self._pending.clear()
+
+    async def close(self) -> None:
+        self._closing = True
+        if self._recv_task:
+            self._recv_task.cancel()
+        if self._ws:
+            await self._ws.close()
+
+    # ------------------------------------------------------------------ #
+    # Command helper
+    # ------------------------------------------------------------------ #
+    async def _command(self, command: str, **args: Any) -> Any:
+        if self._ws is None:
+            raise ConnectionError("not connected to Music Assistant")
+        import json
+
+        message_id = str(next(self._msg_ids))
+        payload = {"command": command, "message_id": message_id}
+        if args:
+            payload["args"] = args
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        self._pending[message_id] = fut
+        await self._ws.send(json.dumps(payload))
+        return await asyncio.wait_for(fut, timeout=30)
+
+    # ------------------------------------------------------------------ #
+    # High-level operations
+    # ------------------------------------------------------------------ #
+    async def refresh_active_queue(self) -> str | None:
+        """Pick the queue that's currently playing as the DJ target."""
+        try:
+            queues = await self._command(CMD_QUEUES_ALL) or []
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not list queues: %s", err)
+            return self.active_queue_id
+
+        playing = [q for q in queues if q.get("state") == "playing"]
+        chosen = playing[0] if playing else (queues[0] if queues else None)
+        if chosen:
+            self.active_queue_id = chosen.get("queue_id") or chosen.get("id")
+        return self.active_queue_id
+
+    async def get_queue(self, queue_id: str | None = None) -> dict[str, Any]:
+        """Return the active queue plus its upcoming items."""
+        queue_id = queue_id or self.active_queue_id
+        if not queue_id:
+            await self.refresh_active_queue()
+            queue_id = self.active_queue_id
+        if not queue_id:
+            return {"queue_id": None, "items": [], "items_remaining": 0}
+
+        queues = await self._command(CMD_QUEUES_ALL) or []
+        meta = next(
+            (q for q in queues if (q.get("queue_id") or q.get("id")) == queue_id),
+            {},
+        )
+        items = await self._command(CMD_QUEUE_ITEMS, queue_id=queue_id) or []
+
+        current_index = meta.get("current_index") or 0
+        items_remaining = max(len(items) - current_index - 1, 0)
+        return {
+            "queue_id": queue_id,
+            "current_item": meta.get("current_item"),
+            "current_index": current_index,
+            "items": items,
+            "items_remaining": items_remaining,
+            "state": meta.get("state"),
+        }
+
+    async def get_history(self, n: int = 20) -> list[dict[str, Any]]:
+        """Return the last `n` played items from the active queue."""
+        queue = await self.get_queue()
+        items = queue.get("items") or []
+        idx = queue.get("current_index") or 0
+        history = items[max(0, idx - n):idx]
+        return history
+
+    async def search_track(self, query: str) -> dict[str, Any] | None:
+        """Search MA for a track matching a free-text query."""
+        try:
+            result = await self._command(
+                CMD_SEARCH,
+                search_query=query,
+                media_types=["track"],
+                limit=3,
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("MA search failed for %r: %s", query, err)
+            return None
+        if not result:
+            return None
+        tracks = result.get("tracks") if isinstance(result, dict) else result
+        return tracks[0] if tracks else None
+
+    async def enqueue_queries(self, queries: list[str]) -> list[dict[str, Any]]:
+        """Resolve queries to tracks and append them to the active queue.
+
+        Returns the list of tracks that were successfully enqueued.
+        """
+        queue_id = self.active_queue_id or await self.refresh_active_queue()
+        if not queue_id:
+            _LOGGER.warning("No active queue to enqueue into")
+            return []
+
+        enqueued: list[dict[str, Any]] = []
+        for query in queries:
+            track = await self.search_track(query)
+            if not track:
+                continue
+            uri = track.get("uri")
+            if not uri:
+                continue
+            try:
+                await self._command(
+                    CMD_PLAY_MEDIA,
+                    queue_id=queue_id,
+                    media=uri,
+                    option="add",  # append without interrupting playback
+                )
+                enqueued.append(track)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Failed to enqueue %r: %s", query, err)
+        return enqueued
+
+    async def skip(self) -> bool:
+        queue = await self.get_queue()
+        player_id = queue.get("queue_id")
+        if not player_id:
+            return False
+        try:
+            await self._command(CMD_NEXT, player_id=player_id)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Skip failed: %s", err)
+            return False
+
+    async def get_library_tracks(self, limit: int = 100) -> list[dict[str, Any]]:
+        try:
+            return await self._command(CMD_LIBRARY_TRACKS, limit=limit) or []
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("get_library_tracks failed: %s", err)
+            return []

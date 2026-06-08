@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Add-on runtime data (HA writes these at runtime under /data)
+data/
+options.json
+taste_profile.json
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

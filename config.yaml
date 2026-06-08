@@ -1,0 +1,31 @@
+name: TideSync DJ
+version: "0.1.0"
+slug: tidesync_dj
+description: AI-powered Tidal DJ using Music Assistant and Claude
+url: https://github.com/asherflynt/tidesync-dj
+arch:
+  - amd64
+  - aarch64
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:music-note-bluetooth
+panel_title: TideSync DJ
+homeassistant_api: true
+hassio_api: true
+options:
+  anthropic_api_key: ""
+  claude_model: "claude-opus-4-8"
+  ma_host: "homeassistant.local"
+  ma_port: 8095
+  dj_tick_interval: 30
+  skip_penalty_seconds: 30
+  vibe_input_text_entity: ""
+schema:
+  anthropic_api_key: str
+  claude_model: list(claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5)
+  ma_host: str
+  ma_port: int
+  dj_tick_interval: int
+  skip_penalty_seconds: int
+  vibe_input_text_entity: str?
