@@ -22,9 +22,5 @@ as the decision brain.
    it (Anthropic API key, Music Assistant host/port), and start it.
 5. Open the **TideSync DJ** panel from the HA sidebar.
 
-> **Private repository note:** if this repo is private, the HA Supervisor can't
-> clone it without credentials. Either make it public for the install, or drop
-> the `tidesync_dj/` folder into your `/addons` share as a local add-on instead.
-
 See the [add-on README](./tidesync_dj/README.md) for full configuration and API
 details.
