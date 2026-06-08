@@ -225,7 +225,6 @@
   }
 
   let maConnected = false;
-  let paused = false;
 
   function setConn(connected) {
     maConnected = connected;
@@ -274,6 +273,12 @@
       document.getElementById("sDisc").textContent = s.stats.discoveries;
       document.getElementById("sessionCount").textContent = s.session_track_count || 0;
       document.getElementById("likeBtn").disabled = !s.can_like;
+
+      // Sync pause button to actual player state
+      const isPaused = s.player_state === "paused";
+      const pauseBtn = document.getElementById("pauseBtn");
+      pauseBtn.textContent = isPaused ? "▶" : "⏸";
+      pauseBtn.title = isPaused ? "Resume" : "Pause";
     } catch (e) {
       setConn(false);
     }
@@ -300,19 +305,13 @@
     } catch (e) { /* ignore */ }
   }
 
-  // Pause / resume
+  // Pause / resume — icon is synced from player_state in refreshStatus
   document.getElementById("pauseBtn").addEventListener("click", async (e) => {
     e.target.disabled = true;
-    try {
-      if (paused) {
-        await postJSON("/tick");  // resume by nudging DJ if paused
-        // Actually send play via pause toggle — MA pause toggles
-      }
-      await postJSON("/pause");
-      paused = !paused;
-      e.target.textContent = paused ? "▶" : "⏸";
-      e.target.title = paused ? "Resume" : "Pause";
-    } finally { e.target.disabled = false; }
+    try { await postJSON("/pause"); } finally {
+      e.target.disabled = false;
+      refreshStatus();
+    }
   });
 
   // Skip (routes through our engine so skip is tracked)

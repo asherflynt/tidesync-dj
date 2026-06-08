@@ -1,5 +1,5 @@
 name: TideSync DJ
-version: "0.5.0"
+version: "0.5.1"
 slug: tidesync_dj
 description: AI-powered Tidal DJ using Music Assistant and Claude
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj

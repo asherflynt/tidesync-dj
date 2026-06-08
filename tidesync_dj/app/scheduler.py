@@ -463,6 +463,7 @@ class DJEngine:
             "configured": bool(self._config.anthropic_api_key),
             "now_playing": _track_label(current_item),
             "album_art": album_art,
+            "player_state": queue.get("state"),  # "playing" | "paused" | "idle" | None
             "vibe": self.vibe_prompt or None,
             "time_of_day": _time_of_day(),
             "items_remaining": queue.get("items_remaining", 0),
