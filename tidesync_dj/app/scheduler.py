@@ -90,6 +90,7 @@ class DJEngine:
         self._last_current: dict[str, Any] | None = None
         self._tick_lock = asyncio.Lock()
         self._pending_tick: asyncio.Task | None = None  # debounce queue_updated flood
+        self._enqueuing = False  # True while _run_decision is adding tracks to MA
         self._tasks: list[asyncio.Task] = []
         self._stopping = False
 
@@ -167,7 +168,9 @@ class DJEngine:
             else:
                 return
 
-        _LOGGER.debug("queue_updated: items_remaining=%s", remaining)
+        _LOGGER.debug("queue_updated: items_remaining=%s enqueuing=%s", remaining, self._enqueuing)
+        if self._enqueuing:
+            return  # suppress ticks during our own enqueue batch
         if remaining < ENQUEUE_THRESHOLD:
             # Debounce: MA fires queue_updated for every track added during a
             # batch enqueue.  Collapse the burst into a single pending tick so
@@ -312,7 +315,11 @@ class DJEngine:
                 return {"ok": False, "error": str(err)}
 
             queries = [t.query for t in decision.next_tracks]
-            enqueued = await self._ma.enqueue_queries(queries, option=play_option)
+            self._enqueuing = True
+            try:
+                enqueued = await self._ma.enqueue_queries(queries, option=play_option)
+            finally:
+                self._enqueuing = False
             if play_option == "play":
                 await self._ma.ensure_playing()
             for track in enqueued:
@@ -383,8 +390,7 @@ class DJEngine:
                 "ok": False,
                 "error": "No Music Assistant player available to start radio on.",
             }
-        _LOGGER.info("Starting radio on player %s — clearing existing queue first", player)
-        await self._ma.clear_queue()
+        _LOGGER.info("Starting radio on player %s", player)
         return await self._run_decision(
             reason="start_radio", play_option="play", fresh_start=True
         )
