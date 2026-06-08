@@ -163,34 +163,61 @@ class MusicAssistantClient:
         except Exception:  # noqa: BLE001
             return False
 
-    async def run_forever(self, retry_delay: int = 5) -> None:
+    async def _keepalive_loop(self, interval: int = 15) -> None:
+        """Send a cheap command periodically so the socket never sits idle.
+
+        Idle authenticated connections through the HA add-on/Docker hairpin get
+        reset after ~30s; a lightweight `info` every 15s keeps them alive.
+        """
+        while not self._closing:
+            await asyncio.sleep(interval)
+            if self.is_connected:
+                try:
+                    await self._command("info")
+                except Exception:  # noqa: BLE001 - the receive loop handles drops
+                    pass
+
+    async def run_forever(self, retry_delay: int = 2) -> None:
         """Maintain the connection, reconnecting with backoff on drops."""
+        keepalive = asyncio.create_task(self._keepalive_loop())
+        try:
+            await self._run_forever_inner(retry_delay)
+        finally:
+            keepalive.cancel()
+
+    async def _run_forever_inner(self, retry_delay: int) -> None:
         while not self._closing:
             try:
+                # Open + handshake + authenticate.
                 await self.connect()
-                await self.refresh_active_queue()
-                # Block until the receive loop ends (i.e. the socket drops).
-                if self._recv_task:
-                    await self._recv_task
-            except ConnectionError as err:
-                # Auth/handshake errors already set a friendly last_error.
-                _LOGGER.warning("MA connection error: %s", err)
             except OSError as err:
-                # Socket couldn't be opened at all (wrong host/port, refused).
+                # Socket couldn't be opened at all — real config problem.
                 self.last_error = (
                     f"Can't reach Music Assistant at {self._ws_url} — check the "
                     f"host and port. ({err})"
                 )
                 _LOGGER.warning("MA connection error: %s", self.last_error)
-            except Exception as err:  # noqa: BLE001 - keep the loop alive
+            except ConnectionError as err:
+                # Auth/handshake error — _authenticate already set last_error.
+                _LOGGER.warning("MA auth error: %s", err)
+            except Exception as err:  # noqa: BLE001
                 self.last_error = f"Music Assistant connection error: {err}"
                 _LOGGER.warning("MA connection error: %s", err)
+            else:
+                # Connected and authenticated. Hold until the socket drops; a
+                # drop here is transient (e.g. idle reset) and recovers quietly.
+                try:
+                    await self.refresh_active_queue()
+                    if self._recv_task:
+                        await self._recv_task
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.info("MA connection dropped, reconnecting: %s", err)
+
             if self._closing:
                 break
             self._connected.clear()
             self._authed = False
             self._is_open = False
-            _LOGGER.info("Reconnecting to MA in %ss", retry_delay)
             await asyncio.sleep(retry_delay)
 
     async def _receive_loop(self) -> None:

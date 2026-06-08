@@ -20,8 +20,15 @@
     display: flex; align-items: center; gap: 12px;
   }
   header h1 { font-size: 18px; margin: 0; font-weight: 650; }
-  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #555; }
+  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #555;
+    flex: 0 0 auto; }
   header .dot.on { background: #34d399; box-shadow: 0 0 8px #34d399; }
+  header .dot.connecting { background: #f0b94c; box-shadow: 0 0 8px #f0b94c;
+    animation: pulse 1.1s ease-in-out infinite; }
+  header .conn-text { font-size: 13px; color: var(--muted); margin-right: 2px; }
+  header .conn-text.connecting { color: #f0b94c; }
+  header .conn-text.on { color: #34d399; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
   .wrap { max-width: 920px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
   .card {
     background: var(--panel); border: 1px solid var(--border);
@@ -68,7 +75,8 @@
 </head>
 <body>
 <header>
-  <span class="dot" id="conn"></span>
+  <span class="dot connecting" id="conn"></span>
+  <span class="conn-text connecting" id="connText">Connecting…</span>
   <h1>🎧 TideSync DJ</h1>
   <span class="vibe-pill" id="model"></span>
 </header>
@@ -184,10 +192,23 @@
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   }
 
+  // Shared connection state, so the player dropdown can show "Connecting…" too.
+  let maConnected = false;
+  function setConn(connected) {
+    maConnected = connected;
+    const dot = document.getElementById("conn");
+    const txt = document.getElementById("connText");
+    dot.classList.toggle("on", connected);
+    dot.classList.toggle("connecting", !connected);
+    txt.classList.toggle("on", connected);
+    txt.classList.toggle("connecting", !connected);
+    txt.textContent = connected ? "Connected" : "Connecting…";
+  }
+
   async function refreshStatus() {
     try {
       const s = await getJSON("/status");
-      document.getElementById("conn").classList.toggle("on", !!s.ma_connected);
+      setConn(!!s.ma_connected);
       // Onboarding banners.
       document.getElementById("setupBanner").classList.toggle("show", s.configured === false);
       document.getElementById("maHost").textContent = s.ma_host || "the configured host";
@@ -207,7 +228,8 @@
       document.getElementById("sessionCount").textContent = s.session_track_count || 0;
       document.getElementById("likeBtn").disabled = !s.can_like;
     } catch (e) {
-      document.getElementById("conn").classList.remove("on");
+      // Backend not answering yet (add-on still starting) — show connecting.
+      setConn(false);
     }
   }
 
@@ -249,7 +271,9 @@
       const sel = document.getElementById("playerSelect");
       const current = sel.value;
       if (!players.length) {
-        sel.innerHTML = '<option value="">No players found</option>';
+        sel.innerHTML = maConnected
+          ? '<option value="">No players found</option>'
+          : '<option value="">Connecting…</option>';
         return;
       }
       sel.innerHTML = players.map(p =>

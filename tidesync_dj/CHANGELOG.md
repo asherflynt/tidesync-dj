@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.3
+
+- Keep the Music Assistant connection alive: send a lightweight `info` command
+  every 15s so the authenticated socket isn't reset after ~30s idle (the cause
+  of the periodic "disconnect" flicker). Faster reconnect (2s).
+- Don't flash a scary "can't reach host/port" message on a transient drop of an
+  already-connected socket — only a real failure-to-open sets it.
+- Dashboard: a clear "Connecting…" / "Connected" indicator in the header (amber
+  pulsing dot while connecting, green when connected); the player dropdown shows
+  "Connecting…" instead of "No players found" until the connection is up.
+
 ## 0.4.2
 
 Fixes Start Radio / Nudge DJ / Seed all failing with
