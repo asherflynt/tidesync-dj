@@ -417,12 +417,10 @@
       const { players } = await getJSON("/players");
       const sel = document.getElementById("playerSelect");
       const current = sel.value;
-      if (!players.length) {
-        sel.innerHTML = maConnected
-          ? '<option value="">No players found</option>'
-          : '<option value="">Connecting…</option>';
-        return;
-      }
+      // Don't clear the dropdown on an empty list — the server returns cached
+      // players during brief MA reconnects so this should rarely be empty, but
+      // if it is, preserve what's already shown rather than wiping the selection.
+      if (!players.length) return;
       sel.innerHTML = players.map(p =>
         `<option value="${esc(p.player_id)}">${esc(p.name || p.player_id)}</option>`).join("");
       const selected = players.find(p => p.selected);

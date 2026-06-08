@@ -47,6 +47,7 @@ EVENT_QUEUE_UPDATED = "queue_updated"
 EVENT_QUEUE_TIME_UPDATED = "queue_time_updated"
 
 EventCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
+ReconnectCallback = Callable[[], Awaitable[None]]
 
 
 class MusicAssistantClient:
@@ -65,6 +66,7 @@ class MusicAssistantClient:
         self._msg_ids = itertools.count(1)
         self._pending: dict[str, asyncio.Future] = {}
         self._event_cb: EventCallback | None = None
+        self._reconnect_cb: ReconnectCallback | None = None
         self._recv_task: asyncio.Task | None = None
         self._connected = asyncio.Event()
         self._authenticated = asyncio.Event()
@@ -78,6 +80,9 @@ class MusicAssistantClient:
         # Explicitly selected player (overrides auto-pick). In MA a player's own
         # queue_id equals its player_id.
         self.selected_player_id: str | None = None
+        # Last successful player list — returned when MA is temporarily disconnected
+        # so the UI dropdown doesn't flicker/disappear during brief reconnects.
+        self._cached_players: list[dict[str, Any]] = []
 
     @property
     def is_connected(self) -> bool:
@@ -89,6 +94,9 @@ class MusicAssistantClient:
     # ------------------------------------------------------------------ #
     def on_event(self, cb: EventCallback) -> None:
         self._event_cb = cb
+
+    def on_reconnect(self, cb: ReconnectCallback) -> None:
+        self._reconnect_cb = cb
 
     async def _resolve_url(self) -> str:
         """Return the best WebSocket URL for this run.
@@ -252,6 +260,11 @@ class MusicAssistantClient:
                 # drop here is transient (e.g. idle reset) and recovers quietly.
                 try:
                     await self.refresh_active_queue()
+                    if self._reconnect_cb:
+                        try:
+                            await self._reconnect_cb()
+                        except Exception as cb_err:  # noqa: BLE001
+                            _LOGGER.debug("Reconnect callback error: %s", cb_err)
                     if self._recv_task:
                         await self._recv_task
                 except Exception as err:  # noqa: BLE001
@@ -346,7 +359,15 @@ class MusicAssistantClient:
             payload["args"] = args
         fut: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending[message_id] = fut
-        await self._ws.send(json.dumps(payload))
+        try:
+            await self._ws.send(json.dumps(payload))
+        except Exception as send_err:
+            # Socket died between the is_open check and the send.  Remove the
+            # future from pending and cancel it so Python never logs
+            # "Future exception was never retrieved" when _fail_pending runs.
+            self._pending.pop(message_id, None)
+            fut.cancel()
+            raise ConnectionError(f"websocket send failed: {send_err}") from send_err
         return await asyncio.wait_for(fut, timeout=30)
 
     # ------------------------------------------------------------------ #
@@ -368,13 +389,21 @@ class MusicAssistantClient:
         try:
             players = await self._command(CMD_PLAYERS_ALL) or []
         except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Could not list players: %s", err)
-            return []
+            _LOGGER.warning("Could not list players: %s — returning cached list (%d players)", err, len(self._cached_players))
+            return list(self._cached_players)
+        _LOGGER.debug(
+            "MA players/all returned %d entries: %s",
+            len(players),
+            [(p.get("player_id"), p.get("display_name") or p.get("name"), p.get("type"), p.get("available")) for p in players],
+        )
         views = [self._player_view(p) for p in players]
         # Keep any player with an id — idle MA players (AirPlay zones, etc.)
         # report available=false until woken, but we still want to list/target
         # them (Start Radio will power them on).
-        return [v for v in views if v["player_id"]]
+        result = [v for v in views if v["player_id"]]
+        if result:
+            self._cached_players = result
+        return result
 
     def set_player(self, player_id: str) -> None:
         """Explicitly target a player. Its queue_id == player_id in MA."""

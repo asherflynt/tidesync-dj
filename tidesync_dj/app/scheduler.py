@@ -98,6 +98,7 @@ class DJEngine:
     async def start(self) -> None:
         self._taste.start_session()
         self._ma.on_event(self._on_ma_event)
+        self._ma.on_reconnect(self._on_ma_reconnect)
         self._tasks.append(asyncio.create_task(self._ma.run_forever()))
         self._tasks.append(asyncio.create_task(self._poll_loop()))
         if self._config.vibe_input_text_entity:
@@ -119,6 +120,17 @@ class DJEngine:
             await self._taste.bootstrap(self._brain, library)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Taste bootstrap skipped: %s", err)
+
+    async def _on_ma_reconnect(self) -> None:
+        """Called each time the MA WebSocket reconnects.
+
+        Clears the tracked current-track state so the first queue_updated event
+        after reconnect is not misread as a skip (the elapsed time since
+        _current_track_started would be near-zero, well below skip_penalty_seconds).
+        """
+        _LOGGER.info("MA reconnected — resetting skip-detection state")
+        self._current_track_id = None
+        self._current_track_started = time.monotonic()
 
     # ------------------------------------------------------------------ #
     # Triggers
@@ -327,6 +339,19 @@ class DJEngine:
 
     async def start_radio(self) -> dict[str, Any]:
         """Pick a player if needed, then start playback with a fresh set."""
+        # If MA just dropped and is reconnecting, wait up to 15s rather than
+        # immediately failing with a misleading "tracks not found" error.
+        if not self._ma.is_connected:
+            _LOGGER.info("start_radio: MA not connected, waiting up to 15s for reconnect")
+            for _ in range(15):
+                await asyncio.sleep(1)
+                if self._ma.is_connected:
+                    break
+            if not self._ma.is_connected:
+                return {
+                    "ok": False,
+                    "error": "Music Assistant is not connected. Check the MA add-on and try again.",
+                }
         player = await self._ensure_player()
         if not player:
             return {
