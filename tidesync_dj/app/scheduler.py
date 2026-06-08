@@ -386,12 +386,31 @@ class DJEngine:
         return {"ok": ok}
 
     async def _ensure_player(self) -> str | None:
-        """Return a target player id, auto-selecting the first if none chosen."""
-        if self._ma.selected_player_id:
-            return self._ma.selected_player_id
+        """Return a target player id, auto-selecting the first if none chosen.
+
+        Also validates the stored player_id still exists in MA — the Web Player
+        (ma_* prefix) disappears when the MA browser tab is closed, and other
+        players may go unavailable. Using a stale id causes "Queue not
+        available" warnings in MA until the add-on is restarted.
+        """
         players = await self._ma.get_players()
-        if players:
-            self._ma.set_player(players[0]["player_id"])
+        player_ids = {p["player_id"] for p in players}
+
+        if self._ma.selected_player_id:
+            if self._ma.selected_player_id in player_ids:
+                return self._ma.selected_player_id
+            _LOGGER.warning(
+                "Previously selected player %s is no longer in MA player list — clearing selection",
+                self._ma.selected_player_id,
+            )
+            self._ma.selected_player_id = None
+            self._ma.active_queue_id = None
+
+        # Prefer a player that is actively powered/available over a cold one.
+        available = [p for p in players if p.get("available") and p.get("powered")]
+        chosen = (available or players or [None])[0]
+        if chosen:
+            self._ma.set_player(chosen["player_id"])
             return self._ma.selected_player_id
         return None
 
