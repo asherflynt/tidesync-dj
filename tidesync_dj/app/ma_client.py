@@ -172,7 +172,18 @@ class MusicAssistantClient:
                 # Block until the receive loop ends (i.e. the socket drops).
                 if self._recv_task:
                     await self._recv_task
+            except ConnectionError as err:
+                # Auth/handshake errors already set a friendly last_error.
+                _LOGGER.warning("MA connection error: %s", err)
+            except OSError as err:
+                # Socket couldn't be opened at all (wrong host/port, refused).
+                self.last_error = (
+                    f"Can't reach Music Assistant at {self._ws_url} — check the "
+                    f"host and port. ({err})"
+                )
+                _LOGGER.warning("MA connection error: %s", self.last_error)
             except Exception as err:  # noqa: BLE001 - keep the loop alive
+                self.last_error = f"Music Assistant connection error: {err}"
                 _LOGGER.warning("MA connection error: %s", err)
             if self._closing:
                 break

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Surface socket-level connection failures (wrong host/port, connection refused)
+  in `last_error` so the dashboard banner shows the real reason instead of the
+  generic "confirm host/port" text.
+
 ## 0.4.0
 
 The add-on connected to the Music Assistant socket but every command was
