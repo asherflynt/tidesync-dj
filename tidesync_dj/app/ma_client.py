@@ -330,7 +330,13 @@ class MusicAssistantClient:
 
         # Pushed event.
         if "event" in msg and self._event_cb:
-            await self._event_cb(msg["event"], msg.get("data") or msg)
+            try:
+                await self._event_cb(msg["event"], msg.get("data") or msg)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error(
+                    "Event callback raised for event %r: %s",
+                    msg.get("event"), err, exc_info=True,
+                )
 
     def _fail_pending(self, exc: Exception) -> None:
         for fut in self._pending.values():

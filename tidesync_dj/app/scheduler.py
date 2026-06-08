@@ -150,8 +150,9 @@ class DJEngine:
 
         # Compute items_remaining directly from the event payload.
         # The queue_updated event has 'items' (total count) and 'current_index'.
+        # Use `or 0` rather than a default so null JSON values also become 0.
         items_total = data.get("items")
-        current_index = data.get("current_index", 0)
+        current_index = data.get("current_index") or 0
         if isinstance(items_total, int):
             remaining = max(items_total - current_index - 1, 0)
         else:
