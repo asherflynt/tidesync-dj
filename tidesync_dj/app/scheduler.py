@@ -125,6 +125,7 @@ class DJEngine:
     async def _on_ma_event(self, event: str, data: dict[str, Any]) -> None:
         if event != EVENT_QUEUE_UPDATED:
             return
+        _LOGGER.debug("queue_updated event data=%r", data)
         self._detect_skip(data)
         remaining = data.get("items_remaining")
         if remaining is None:
@@ -159,10 +160,16 @@ class DJEngine:
     # Skip detection
     # ------------------------------------------------------------------ #
     def _detect_skip(self, queue_or_event: dict[str, Any]) -> None:
+        _LOGGER.debug(
+            "detect_skip input keys=%s current_item=%r",
+            list(queue_or_event.keys()),
+            queue_or_event.get("current_item"),
+        )
         current = queue_or_event.get("current_item")
         track_id = None
         if current:
             track_id = current.get("queue_item_id") or current.get("uri")
+        _LOGGER.debug("detect_skip track_id=%r known=%r", track_id, self._current_track_id)
         # No current item usually means a reconnect gap — don't misread it as a skip.
         if track_id is None:
             return

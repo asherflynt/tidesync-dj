@@ -21,7 +21,7 @@ from ma_client import MusicAssistantClient
 from scheduler import DJEngine
 from taste_profile import TasteProfile
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger("tidesync")
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
