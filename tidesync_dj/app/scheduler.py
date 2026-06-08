@@ -295,7 +295,7 @@ class DJEngine:
                 try:
                     live_queue = await self._ma.get_queue()
                     live_remaining = live_queue.get("items_remaining", 0)
-                    if live_remaining >= ENQUEUE_THRESHOLD:
+                    if live_remaining >= QUEUE_TARGET // 2:
                         _LOGGER.debug(
                             "tick(%s) skipped — queue already has %d tracks remaining",
                             reason, live_remaining,
@@ -383,7 +383,8 @@ class DJEngine:
                 "ok": False,
                 "error": "No Music Assistant player available to start radio on.",
             }
-        _LOGGER.info("Starting radio on player %s", player)
+        _LOGGER.info("Starting radio on player %s — clearing existing queue first", player)
+        await self._ma.clear_queue()
         return await self._run_decision(
             reason="start_radio", play_option="play", fresh_start=True
         )

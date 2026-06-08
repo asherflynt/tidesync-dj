@@ -38,6 +38,7 @@ CMD_PAUSE = "players/cmd/pause"
 CMD_SEARCH = "music/search"
 CMD_LIBRARY_TRACKS = "music/tracks/library_items"
 # Favorites + playlist management (used for "like" and "save session").
+CMD_QUEUE_CLEAR = "player_queues/clear"
 CMD_FAVORITE_ADD = "music/favorites/add_item"
 CMD_PLAYLIST_CREATE = "music/playlists/create_playlist"
 CMD_PLAYLIST_ADD_TRACKS = "music/playlists/add_playlist_tracks"
@@ -516,6 +517,19 @@ class MusicAssistantClient:
             return None
         tracks = result.get("tracks") if isinstance(result, dict) else result
         return tracks[0] if tracks else None
+
+    async def clear_queue(self) -> bool:
+        """Clear all items from the active queue."""
+        queue_id = self.active_queue_id or await self.refresh_active_queue()
+        if not queue_id:
+            return False
+        try:
+            await self._command(CMD_QUEUE_CLEAR, queue_id=queue_id)
+            _LOGGER.info("Queue %s cleared", queue_id)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Failed to clear queue %s: %s", queue_id, err)
+            return False
 
     async def enqueue_queries(
         self, queries: list[str], option: str = "add"
