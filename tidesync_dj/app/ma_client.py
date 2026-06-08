@@ -288,8 +288,10 @@ class MusicAssistantClient:
     # Command helper
     # ------------------------------------------------------------------ #
     async def _command(self, command: str, **args: Any) -> Any:
-        if not self.is_connected:
-            # If we're mid-reconnect, wait briefly rather than failing immediately.
+        if not self._is_open:
+            # Socket is closed — wait briefly for a reconnect before failing.
+            # (Don't gate on is_connected here: _authenticate calls _command
+            # before _authed is set, so using is_connected would deadlock auth.)
             try:
                 await asyncio.wait_for(self._authenticated.wait(), timeout=5.0)
             except asyncio.TimeoutError:
