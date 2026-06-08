@@ -34,6 +34,7 @@ CMD_QUEUE_ITEMS = "player_queues/items"
 CMD_PLAY_MEDIA = "player_queues/play_media"
 CMD_NEXT = "players/cmd/next"
 CMD_PLAY = "players/cmd/play"
+CMD_PAUSE = "players/cmd/pause"
 CMD_SEARCH = "music/search"
 CMD_LIBRARY_TRACKS = "music/tracks/library_items"
 # Favorites + playlist management (used for "like" and "save session").
@@ -508,6 +509,17 @@ class MusicAssistantClient:
             return True
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Play command failed: %s", err)
+            return False
+
+    async def pause(self) -> bool:
+        player_id = self.active_queue_id or self.selected_player_id
+        if not player_id:
+            return False
+        try:
+            await self._command(CMD_PAUSE, player_id=player_id)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Pause failed: %s", err)
             return False
 
     async def skip(self) -> bool:

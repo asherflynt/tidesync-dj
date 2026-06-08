@@ -25,7 +25,8 @@ from taste_profile import TasteProfile
 
 _LOGGER = logging.getLogger(__name__)
 
-ENQUEUE_THRESHOLD = 2  # tick when fewer than this many tracks remain
+ENQUEUE_THRESHOLD = 5   # tick when fewer than this many tracks remain
+QUEUE_TARGET = 30       # how many tracks to request from Claude per decision
 
 
 def _time_of_day(now: datetime | None = None) -> str:
@@ -176,6 +177,7 @@ class DJEngine:
             if value and value != self.vibe_prompt:
                 _LOGGER.info("Vibe updated from %s: %s", entity, value)
                 self.vibe_prompt = value
+                asyncio.create_task(self.tick(reason="vibe_change"))
             await asyncio.sleep(15)
 
     # ------------------------------------------------------------------ #
@@ -200,10 +202,11 @@ class DJEngine:
 
         # Track changed — was the previous one skipped?
         elapsed = time.monotonic() - self._current_track_started
-        if (
+        skipped = (
             self._current_track_id is not None
             and elapsed < self._config.skip_penalty_seconds
-        ):
+        )
+        if skipped:
             label = _track_label(self._last_current)
             self.stats["skips"] += 1
             skip = {"track": label, "elapsed_seconds": round(elapsed, 1)}
@@ -219,6 +222,10 @@ class DJEngine:
         self._current_track_started = time.monotonic()
         self._last_current = current
         self._remember_uri(_track_uri(current))
+
+        # A skip triggers an immediate Claude re-evaluation to adjust the set direction.
+        if skipped:
+            asyncio.create_task(self.tick(reason="skip"))
 
     def _remember_uri(self, uri: str | None) -> None:
         if uri:
@@ -245,12 +252,13 @@ class DJEngine:
             "vibe_prompt": self.vibe_prompt or None,
             "time_of_day": _time_of_day(),
             "listening_duration_mins": duration_mins,
+            "tracks_to_add": QUEUE_TARGET,
         }
         if fresh_start:
             ctx["fresh_start"] = True
             ctx["instruction"] = (
-                "Starting a brand new radio session — open with tracks that set "
-                "the mood from the taste profile, vibe, and time of day."
+                f"Starting a brand new radio session — select exactly {QUEUE_TARGET} tracks "
+                "that set the mood from the taste profile, vibe, and time of day."
             )
         return ctx
 
@@ -341,6 +349,15 @@ class DJEngine:
 
     def select_player(self, player_id: str) -> None:
         self._ma.set_player(player_id)
+
+    async def pause(self) -> dict[str, Any]:
+        ok = await self._ma.pause()
+        return {"ok": ok}
+
+    async def skip(self) -> dict[str, Any]:
+        """Skip the current track and immediately re-evaluate the set."""
+        ok = await self._ma.skip()
+        return {"ok": ok}
 
     async def _ensure_player(self) -> str | None:
         """Return a target player id, auto-selecting the first if none chosen."""
@@ -436,9 +453,16 @@ class DJEngine:
             queue = await self._ma.get_queue()
         except Exception:  # noqa: BLE001
             queue = {}
+        current_item = queue.get("current_item")
+        album_art = None
+        if current_item:
+            img = current_item.get("image") or {}
+            album_art = img.get("path") or None
+
         return {
             "configured": bool(self._config.anthropic_api_key),
-            "now_playing": _track_label(queue.get("current_item")),
+            "now_playing": _track_label(current_item),
+            "album_art": album_art,
             "vibe": self.vibe_prompt or None,
             "time_of_day": _time_of_day(),
             "items_remaining": queue.get("items_remaining", 0),

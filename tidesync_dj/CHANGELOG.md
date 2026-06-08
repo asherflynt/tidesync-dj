@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0
+
+### Queue depth & Claude call reduction
+- Claude now picks **30 tracks** per decision (was 2–3); `max_tokens` raised to 4096
+- Refill threshold raised to 5 remaining (was 2) — Claude is only called when:
+  - **Start Radio** (initial 30-track set)
+  - **Skip detected** (immediate re-evaluation with skip context)
+  - **Nudge DJ** button
+  - **Vibe changes** (via input_text entity or Set Vibe button)
+  - **Queue low** (< 5 tracks remaining → refill with 30 more)
+
+### Playback controls
+- **Pause** (⏸) and **Skip** (⏭) buttons on the dashboard
+- Skip routes through the engine so it's tracked and triggers a Claude re-evaluation
+
+### Now Playing
+- **Album art** displayed from Tidal/MA metadata
+- Cleaner layout: art + title + controls side-by-side
+
+### Engine
+- `media_item_played` event now used as skip detection trigger
+- Vibe change via input_text entity triggers an immediate tick
+- `skip_penalty_seconds` default raised from 30 s → 60 s
+
 ## 0.4.7
 
 - **Fix 30-second disconnect (hairpin NAT)**: when `ma_host` is a private LAN

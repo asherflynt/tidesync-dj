@@ -148,6 +148,18 @@ async def seed(request: Request, body: SeedBody):
     return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
 
+@app.post("/pause")
+async def pause(request: Request):
+    result = await _engine(request).pause()
+    return JSONResponse(result)
+
+
+@app.post("/skip")
+async def skip(request: Request):
+    result = await _engine(request).skip()
+    return JSONResponse(result)
+
+
 @app.post("/like")
 async def like(request: Request):
     result = await _engine(request).like_current()

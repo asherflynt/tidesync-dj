@@ -8,7 +8,7 @@
   :root {
     --bg: #0e1116; --panel: #171b22; --panel2: #1e242d;
     --text: #e6e9ef; --muted: #8b94a3; --accent: #4cc2ff; --accent2: #ff5da2;
-    --border: #262d38;
+    --border: #262d38; --danger: #ff6b6b;
   }
   * { box-sizing: border-box; }
   body {
@@ -16,29 +16,42 @@
     background: var(--bg); color: var(--text); line-height: 1.45;
   }
   header {
-    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    padding: 14px 22px; border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 12px;
   }
   header h1 { font-size: 18px; margin: 0; font-weight: 650; }
-  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #555;
-    flex: 0 0 auto; }
+  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #555; flex: 0 0 auto; }
   header .dot.on { background: #34d399; box-shadow: 0 0 8px #34d399; }
   header .dot.connecting { background: #f0b94c; box-shadow: 0 0 8px #f0b94c;
     animation: pulse 1.1s ease-in-out infinite; }
-  header .conn-text { font-size: 13px; color: var(--muted); margin-right: 2px; }
+  header .conn-text { font-size: 13px; color: var(--muted); }
   header .conn-text.connecting { color: #f0b94c; }
   header .conn-text.on { color: #34d399; }
+  header .model-pill { margin-left: auto; display: inline-block; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px;
+    color: var(--muted); font-size: 12px; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
   .wrap { max-width: 920px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
-  .card {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; padding: 16px 18px;
-  }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
   .card h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
     color: var(--muted); margin: 0 0 12px; }
-  .now { font-size: 22px; font-weight: 600; }
-  .now small { display: block; color: var(--muted); font-size: 13px; font-weight: 400;
-    margin-top: 4px; }
+
+  /* Now Playing */
+  .now-wrap { display: flex; gap: 18px; align-items: center; }
+  .album-art { width: 110px; height: 110px; border-radius: 10px; object-fit: cover;
+    flex: 0 0 110px; background: var(--panel2); display: none; }
+  .album-art.visible { display: block; }
+  .album-placeholder { width: 110px; height: 110px; border-radius: 10px;
+    background: var(--panel2); flex: 0 0 110px; display: flex; align-items: center;
+    justify-content: center; font-size: 36px; color: var(--muted); }
+  .now-text { flex: 1; min-width: 0; }
+  .now-title { font-size: 20px; font-weight: 600; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .now-meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .now-controls { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+
+  /* Playback buttons */
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
   input[type=text], select {
     flex: 1; min-width: 200px; background: var(--panel2); border: 1px solid var(--border);
@@ -48,15 +61,24 @@
   button {
     background: var(--accent); color: #04212f; border: 0; border-radius: 8px;
     padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+    white-space: nowrap;
   }
   button.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
-  button:active { transform: translateY(1px); }
+  button.icon-btn { padding: 10px 14px; font-size: 18px; line-height: 1; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:not(:disabled):active { transform: translateY(1px); }
+
+  /* Stats */
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .stat { background: var(--panel2); border-radius: 10px; padding: 12px; text-align: center; }
   .stat b { display: block; font-size: 24px; }
   .stat span { color: var(--muted); font-size: 12px; }
+
+  /* Vibe pill */
   .vibe-pill { display: inline-block; background: var(--panel2); border: 1px solid var(--border);
     border-radius: 999px; padding: 4px 12px; color: var(--accent); font-size: 13px; }
+
+  /* Decision log */
   .log { display: grid; gap: 10px; }
   .entry { background: var(--panel2); border-radius: 10px; padding: 12px 14px;
     border-left: 3px solid var(--accent2); }
@@ -65,8 +87,9 @@
   .entry ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
   .shift { color: var(--accent2); font-weight: 600; }
   .empty { color: var(--muted); font-size: 13px; }
-  .banner { display: none; border-radius: 12px; padding: 14px 16px; font-size: 14px;
-    border: 1px solid; }
+
+  /* Banners */
+  .banner { display: none; border-radius: 12px; padding: 14px 16px; font-size: 14px; border: 1px solid; }
   .banner.show { display: block; }
   .banner.warn { background: #2a1d12; border-color: #6b4a25; color: #f4c98a; }
   .banner.info { background: #122433; border-color: #2c5067; color: #9ad0f0; }
@@ -78,31 +101,40 @@
   <span class="dot connecting" id="conn"></span>
   <span class="conn-text connecting" id="connText">Connecting…</span>
   <h1>🎧 TideSync DJ</h1>
-  <span class="vibe-pill" id="model"></span>
+  <span class="model-pill" id="model"></span>
 </header>
 
 <div class="wrap">
   <div class="banner warn" id="setupBanner">
-    <b>Setup needed.</b> No Anthropic API key is configured, so the DJ can't make
-    decisions yet. Open this add-on's <b>Configuration</b> tab in Home Assistant,
-    paste your <code>sk-ant-…</code> key, click <b>Save</b>, then restart the add-on.
+    <b>Setup needed.</b> No Anthropic API key is configured. Open this add-on's
+    <b>Configuration</b> tab in Home Assistant, paste your <code>sk-ant-…</code> key,
+    click <b>Save</b>, then restart.
   </div>
   <div class="banner info" id="maBanner">
-    <b>Waiting for Music Assistant.</b> Not connected to Music Assistant at
-    <span id="maHost"></span> yet.
-    <span id="maErr"></span>
+    <b>Waiting for Music Assistant.</b> Not connected to
+    <span id="maHost"></span> yet. <span id="maErr"></span>
   </div>
 
+  <!-- Now Playing -->
   <div class="card">
     <h2>Now Playing</h2>
-    <div class="now" id="nowPlaying">—</div>
-    <small id="meta"></small>
-    <div class="row" style="margin-top:12px">
-      <button class="ghost" id="likeBtn" disabled>♥ Like in Tidal</button>
-      <span id="likeMsg" class="empty"></span>
+    <div class="now-wrap">
+      <img class="album-art" id="albumArt" alt="Album art" />
+      <div id="albumPlaceholder" class="album-placeholder">♫</div>
+      <div class="now-text">
+        <div class="now-title" id="nowPlaying">—</div>
+        <div class="now-meta" id="meta"></div>
+        <div class="now-controls">
+          <button class="ghost icon-btn" id="pauseBtn" title="Pause / Resume">⏸</button>
+          <button class="ghost icon-btn" id="skipBtn" title="Skip track">⏭</button>
+          <button class="ghost" id="likeBtn" disabled>♥ Like</button>
+          <span id="likeMsg" class="empty"></span>
+        </div>
+      </div>
     </div>
   </div>
 
+  <!-- Playback / player select -->
   <div class="card">
     <h2>Playback</h2>
     <div class="row">
@@ -114,6 +146,7 @@
     <small id="playbackMsg" class="empty" style="display:block;margin-top:8px"></small>
   </div>
 
+  <!-- Vibe -->
   <div class="card">
     <h2>Active Vibe</h2>
     <div class="row" style="margin-bottom:10px">
@@ -126,21 +159,21 @@
     </div>
   </div>
 
+  <!-- Seed -->
   <div class="card">
     <h2>Seed Taste from a YouTube Music Playlist</h2>
     <small class="empty" style="display:block;margin-bottom:10px">
       Uses a <b>public</b> YouTube Music playlist to build your taste profile.
-      Playback still happens via Tidal in Music Assistant — this only shapes what
-      the DJ picks.
+      Playback still happens via Tidal in Music Assistant.
     </small>
     <div class="row">
-      <input type="text" id="seedInput"
-        placeholder="https://music.youtube.com/playlist?list=…" />
+      <input type="text" id="seedInput" placeholder="https://music.youtube.com/playlist?list=…" />
       <button id="seedBtn">Seed</button>
     </div>
     <small id="seedMsg" class="empty" style="display:block;margin-top:8px"></small>
   </div>
 
+  <!-- Stats -->
   <div class="card">
     <h2>Session Stats</h2>
     <div class="stats">
@@ -150,11 +183,11 @@
     </div>
   </div>
 
+  <!-- Save playlist -->
   <div class="card">
     <h2>Save Session as a Tidal Playlist</h2>
     <small class="empty" style="display:block;margin-bottom:10px">
-      Saves the <span id="sessionCount">0</span> track(s) heard this session to a
-      new playlist in Tidal (via Music Assistant).
+      Saves the <span id="sessionCount">0</span> track(s) heard this session to Tidal.
     </small>
     <div class="row">
       <input type="text" id="playlistName" placeholder="Playlist name (optional)" />
@@ -163,6 +196,7 @@
     <small id="saveMsg" class="empty" style="display:block;margin-top:8px"></small>
   </div>
 
+  <!-- Decision log -->
   <div class="card">
     <h2>DJ Decision Log</h2>
     <div class="log" id="log"><div class="empty">No decisions yet.</div></div>
@@ -170,7 +204,6 @@
 </div>
 
 <script>
-  // Relative URLs so requests work behind the HA ingress path prefix.
   const api = (p) => p.replace(/^\//, "");
 
   async function getJSON(path) {
@@ -186,14 +219,14 @@
     });
     return r.json();
   }
-
   function esc(s) {
     return (s == null ? "" : String(s)).replace(/[&<>]/g, c =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   }
 
-  // Shared connection state, so the player dropdown can show "Connecting…" too.
   let maConnected = false;
+  let paused = false;
+
   function setConn(connected) {
     maConnected = connected;
     const dot = document.getElementById("conn");
@@ -209,7 +242,7 @@
     try {
       const s = await getJSON("/status");
       setConn(!!s.ma_connected);
-      // Onboarding banners.
+
       document.getElementById("setupBanner").classList.toggle("show", s.configured === false);
       document.getElementById("maHost").textContent = s.ma_host || "the configured host";
       document.getElementById("maErr").textContent = s.ma_error
@@ -217,9 +250,23 @@
         : "Confirm the host/port and Music Assistant login in the Configuration tab.";
       document.getElementById("maBanner").classList.toggle(
         "show", s.configured !== false && !s.ma_connected);
+
+      // Now playing + album art
       document.getElementById("nowPlaying").textContent = s.now_playing || "—";
       document.getElementById("meta").textContent =
-        `${s.time_of_day} · ${s.items_remaining} in queue · ${s.session_minutes} min session`;
+        `${s.time_of_day} · ${s.items_remaining} in queue · ${s.session_minutes} min`;
+
+      const art = document.getElementById("albumArt");
+      const placeholder = document.getElementById("albumPlaceholder");
+      if (s.album_art) {
+        art.src = s.album_art;
+        art.classList.add("visible");
+        placeholder.style.display = "none";
+      } else {
+        art.classList.remove("visible");
+        placeholder.style.display = "flex";
+      }
+
       document.getElementById("model").textContent = s.model || "";
       document.getElementById("vibePill").textContent = s.vibe || "no vibe set";
       document.getElementById("sPlayed").textContent = s.stats.tracks_played;
@@ -228,7 +275,6 @@
       document.getElementById("sessionCount").textContent = s.session_track_count || 0;
       document.getElementById("likeBtn").disabled = !s.can_like;
     } catch (e) {
-      // Backend not answering yet (add-on still starting) — show connecting.
       setConn(false);
     }
   }
@@ -238,16 +284,45 @@
       const { decisions } = await getJSON("/history");
       const el = document.getElementById("log");
       if (!decisions.length) { el.innerHTML = '<div class="empty">No decisions yet.</div>'; return; }
-      el.innerHTML = decisions.slice(0, 10).map(d => `
+      el.innerHTML = decisions.slice(0, 8).map(d => `
         <div class="entry">
-          <div class="meta"><span>${esc(d.timestamp)} · ${esc(d.reason)}</span>
-            <span>${d.enqueued} queued</span></div>
+          <div class="meta">
+            <span>${esc(d.timestamp)} · ${esc(d.reason)}</span>
+            <span>${d.enqueued} queued</span>
+          </div>
           <div class="note">${esc(d.dj_note)}</div>
           ${d.mood_shift ? `<div class="shift">↳ mood shift: ${esc(d.mood_shift_reason || "")}</div>` : ""}
-          <ul>${(d.tracks || []).map(t => `<li><b>${esc(t.query)}</b> — ${esc(t.reason)}</li>`).join("")}</ul>
+          <ul>${(d.tracks || []).slice(0, 5).map(t =>
+            `<li><b>${esc(t.query)}</b> — ${esc(t.reason)}</li>`).join("")}
+          ${(d.tracks || []).length > 5 ? `<li class="empty">…and ${(d.tracks||[]).length - 5} more</li>` : ""}
+          </ul>
         </div>`).join("");
     } catch (e) { /* ignore */ }
   }
+
+  // Pause / resume
+  document.getElementById("pauseBtn").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try {
+      if (paused) {
+        await postJSON("/tick");  // resume by nudging DJ if paused
+        // Actually send play via pause toggle — MA pause toggles
+      }
+      await postJSON("/pause");
+      paused = !paused;
+      e.target.textContent = paused ? "▶" : "⏸";
+      e.target.title = paused ? "Resume" : "Pause";
+    } finally { e.target.disabled = false; }
+  });
+
+  // Skip (routes through our engine so skip is tracked)
+  document.getElementById("skipBtn").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try { await postJSON("/skip"); } finally {
+      e.target.disabled = false;
+      refreshStatus();
+    }
+  });
 
   document.getElementById("setVibe").addEventListener("click", async () => {
     const v = document.getElementById("vibeInput").value.trim();
@@ -292,7 +367,7 @@
     const msg = document.getElementById("playbackMsg");
     if (sel.value) await postJSON("/players/select", { player_id: sel.value });
     e.target.disabled = true; e.target.textContent = "Starting…";
-    msg.textContent = "Asking Claude to open the set…";
+    msg.textContent = "Asking Claude to plan the opening set (30 tracks)…";
     try {
       const r = await postJSON("/start_radio");
       msg.textContent = r.ok
@@ -339,7 +414,7 @@
     try {
       const r = await postJSON("/save_playlist", { name });
       msg.textContent = r.ok
-        ? `Saved “${r.playlist}” with ${r.track_count} track(s).`
+        ? `Saved "${r.playlist}" with ${r.track_count} track(s).`
         : `Couldn't save: ${r.error || "unknown error"}`;
     } catch (err) { msg.textContent = "Save failed."; }
     finally { e.target.disabled = false; e.target.textContent = "Save to Tidal"; }

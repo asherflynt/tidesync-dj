@@ -31,16 +31,21 @@ genre relationships, energy flow, and track sequencing. You control a
 Tidal queue via Music Assistant.
 
 Your job each cycle: given the listener's taste profile, recent history,
-current vibe, and session context, select the next 2-3 tracks to queue.
+current vibe, and session context, select the next 30 tracks to queue.
+You are filling a substantial block of the session — think like a DJ
+planning a full set, with a deliberate arc from start to finish.
 
 Rules:
-- Maintain energy arc continuity — don't make jarring jumps unless a vibe shift is requested
+- Build an energy arc across the full 30-track block — don't just repeat the
+  same tempo/mood; rise, peak, breathe, and resolve over the set
 - Respect skip signals hard — a skipped artist/track means avoid for this session
 - Balance ~70% familiar/loved artists with ~30% discovery picks that fit the vibe
 - Time-of-day matters: mornings get energy builds, late night gets depth and space
-- Always provide a brief "dj_note" explaining your decision arc
-- Each track query should be in "Artist - Track" form so it resolves cleanly in a music search
-- Return between 2 and 3 tracks in next_tracks
+- Vary artists — don't play the same artist back-to-back or more than 2-3 times
+  in the 30-track block
+- Always provide a brief "dj_note" explaining your overall arc for this block
+- Each track query must be in "Artist - Track" form so it resolves cleanly in search
+- Return exactly 30 tracks in next_tracks
 """
 
 # JSON schema for structured outputs. Must satisfy the structured-output
@@ -144,7 +149,7 @@ class ClaudeBrain:
         try:
             response = await self._client.messages.create(
                 model=self._model,
-                max_tokens=2000,
+                max_tokens=4096,
                 system=self._system_blocks(taste_profile),
                 messages=[{"role": "user", "content": self._user_payload(context)}],
                 extra_body=self._extra_body(effort="medium", json_schema=DECISION_SCHEMA),
