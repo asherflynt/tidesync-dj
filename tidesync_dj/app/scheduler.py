@@ -89,6 +89,7 @@ class DJEngine:
         self._current_track_started = time.monotonic()
         self._last_current: dict[str, Any] | None = None
         self._tick_lock = asyncio.Lock()
+        self._pending_tick: asyncio.Task | None = None  # debounce queue_updated flood
         self._tasks: list[asyncio.Task] = []
         self._stopping = False
 
@@ -168,7 +169,12 @@ class DJEngine:
 
         _LOGGER.debug("queue_updated: items_remaining=%s", remaining)
         if remaining < ENQUEUE_THRESHOLD:
-            await self.tick(reason="queue_low")
+            # Debounce: MA fires queue_updated for every track added during a
+            # batch enqueue.  Collapse the burst into a single pending tick so
+            # we don't pile up dozens of lock-waiting coroutines.
+            if self._pending_tick and not self._pending_tick.done():
+                return
+            self._pending_tick = asyncio.create_task(self.tick(reason="queue_low"))
 
     async def _poll_loop(self) -> None:
         interval = max(self._config.dj_tick_interval, 10)
@@ -280,6 +286,24 @@ class DJEngine:
     ) -> dict[str, Any]:
         """Shared decision path used by tick() and start_radio()."""
         async with self._tick_lock:
+            # Re-check queue depth once we hold the lock.  queue_updated events
+            # fire for every track added during an enqueue batch, so multiple
+            # "queue_low" ticks can pile up while a previous decision is still
+            # running.  By the time each one acquires the lock the queue is
+            # already healthy — skip the Claude call entirely.
+            if play_option == "add":
+                try:
+                    live_queue = await self._ma.get_queue()
+                    live_remaining = live_queue.get("items_remaining", 0)
+                    if live_remaining >= ENQUEUE_THRESHOLD:
+                        _LOGGER.debug(
+                            "tick(%s) skipped — queue already has %d tracks remaining",
+                            reason, live_remaining,
+                        )
+                        return {"ok": True, "skipped": True, "items_remaining": live_remaining}
+                except Exception:  # noqa: BLE001
+                    pass  # if we can't check, proceed with the decision
+
             context = await self.build_context(fresh_start=fresh_start)
             try:
                 decision = await self._brain.decide(context)
