@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0
+
+The add-on connected to the Music Assistant socket but every command was
+silently rejected, because **Music Assistant 2.8+ requires authentication** on
+its WebSocket API. Fixes (validated live against MA 2.8.9):
+
+- Authenticate after the handshake: `ma_username`/`ma_password` (builtin login)
+  or an optional `ma_token`. Clear errors surface to the dashboard banner.
+- `ma_connected` now reflects the authenticated socket, not whether a queue is
+  active — so the UI no longer appears broken until something plays.
+- List idle players too: MA reports players as `available: false` until woken,
+  and they were being filtered out ("No players found"). Start Radio wakes them.
+- Normalize the host field: a pasted `http://host:port` URL is reduced to the
+  bare host (the port comes from `ma_port`).
+- All Music Assistant command names were validated against the live server —
+  every one is correct.
+
 ## 0.3.1
 
 Build fixes (the 0.3.0 image failed to build on Home Assistant):

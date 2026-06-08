@@ -80,9 +80,9 @@
     paste your <code>sk-ant-…</code> key, click <b>Save</b>, then restart the add-on.
   </div>
   <div class="banner info" id="maBanner">
-    <b>Waiting for Music Assistant.</b> Can't reach Music Assistant at
-    <span id="maHost"></span> yet. Confirm the host/port in the Configuration tab
-    and that a player/queue is active.
+    <b>Waiting for Music Assistant.</b> Not connected to Music Assistant at
+    <span id="maHost"></span> yet.
+    <span id="maErr"></span>
   </div>
 
   <div class="card">
@@ -191,6 +191,9 @@
       // Onboarding banners.
       document.getElementById("setupBanner").classList.toggle("show", s.configured === false);
       document.getElementById("maHost").textContent = s.ma_host || "the configured host";
+      document.getElementById("maErr").textContent = s.ma_error
+        ? s.ma_error
+        : "Confirm the host/port and Music Assistant login in the Configuration tab.";
       document.getElementById("maBanner").classList.toggle(
         "show", s.configured !== false && !s.ma_connected);
       document.getElementById("nowPlaying").textContent = s.now_playing || "—";

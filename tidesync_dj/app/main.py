@@ -33,7 +33,12 @@ async def lifespan(app: FastAPI):
     if not config.anthropic_api_key:
         _LOGGER.warning("No anthropic_api_key configured — DJ decisions will fail.")
 
-    ma = MusicAssistantClient(config.ma_ws_url)
+    ma = MusicAssistantClient(
+        config.ma_ws_url,
+        username=config.ma_username,
+        password=config.ma_password,
+        token=config.ma_token,
+    )
     ha = HAClient()
     brain = ClaudeBrain(config.anthropic_api_key, config.claude_model)
     taste = TasteProfile(config.data_dir)

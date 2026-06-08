@@ -8,7 +8,11 @@ You need:
 
 1. **Music Assistant** installed (as an HA add-on or elsewhere) with **Tidal**
    added as a provider and at least one player.
-2. An **Anthropic API key** — create one at <https://console.anthropic.com>
+2. A **Music Assistant login.** Music Assistant 2.8+ requires authentication on
+   its WebSocket API. In Music Assistant, go to **Settings → Users** and create
+   a user with a username and password (or reuse an existing one). You'll enter
+   these in the add-on config below.
+3. An **Anthropic API key** — create one at <https://console.anthropic.com>
    (it starts with `sk-ant-`). The key is stored privately by Home Assistant;
    it is never written to logs, the dashboard, or this repository.
 
@@ -18,13 +22,17 @@ You need:
 2. Fill in the required fields:
    - **Anthropic API key** — paste your `sk-ant-...` key.
    - **Music Assistant host** — `homeassistant.local` if MA runs on this same
-     machine, otherwise your HA server's IP.
+     machine, otherwise your HA server's IP. A full `http://…:8095` URL is also
+     accepted (the scheme/port are ignored — the port comes from the next field).
    - **Music Assistant port** — usually `8095`.
+   - **Music Assistant username / password** — the MA user from step 2 above.
 3. (Optional) Pick a **Claude model**. Default is `claude-sonnet-4-6` — a good
    balance of quality and cost for frequent DJ decisions. Use
    `claude-opus-4-8` for the sharpest sequencing.
 4. Click **Save**, then go to the **Info** tab and **Start** the add-on.
-5. Open the **TideSync DJ** panel from the Home Assistant sidebar.
+5. Open the **TideSync DJ** panel from the Home Assistant sidebar. The
+   "Waiting for Music Assistant" banner clears once it connects and logs in;
+   if login fails, the banner shows the exact reason.
 
 ## Using it
 
@@ -64,12 +72,16 @@ Claude to build your taste profile from them.
 
 ## Troubleshooting
 
-- **Panel loads but nothing plays** — check the add-on **Log** tab. The most
-  common issue is the Music Assistant host/port or no active player/queue.
+- **"Waiting for Music Assistant" never clears** — the banner shows the reason.
+  Most often it's the MA login: Music Assistant 2.8+ requires authentication, so
+  set **Music Assistant username/password** in the Configuration tab (create a
+  user in MA under **Settings → Users**). "Invalid username or password" means
+  the credentials are wrong; "requires a login" means they're blank.
 - **"DJ decisions will fail" in the log** — the Anthropic API key is missing or
   blank. Add it in the Configuration tab.
-- **No players in the dropdown** — Music Assistant isn't reachable yet, or it has
-  no available players. Confirm the host/port and that a player is set up in MA.
+- **No players in the dropdown** — Music Assistant isn't connected yet (see the
+  login note above). Idle players are listed even when they show as unavailable;
+  Start Radio will wake the one you pick.
 - **Start Radio says "none could be found"** — Claude picked tracks but Music
   Assistant couldn't resolve them via its providers. Make sure Tidal (or another
   provider) is connected and working in MA.

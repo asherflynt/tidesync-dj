@@ -42,11 +42,20 @@ and appends them to the active queue.
 |--------|-------------|---------|
 | `anthropic_api_key` | Anthropic API key | — |
 | `claude_model` | `claude-sonnet-4-6` (default — best cost/quality balance), `claude-opus-4-8` (sharpest sequencing), or `claude-haiku-4-5` (cheapest) | `claude-sonnet-4-6` |
-| `ma_host` | Music Assistant hostname | `homeassistant.local` |
+| `ma_host` | Music Assistant hostname/IP (a full `http://…:port` URL is also accepted and normalized) | `homeassistant.local` |
 | `ma_port` | MA WebSocket port | `8095` |
+| `ma_username` | Music Assistant username (MA 2.8+ requires a login) | — |
+| `ma_password` | Music Assistant password | — |
+| `ma_token` | Optional MA API token (used instead of username/password) | — |
 | `dj_tick_interval` | Polling fallback interval (seconds) | `30` |
 | `skip_penalty_seconds` | Track-change-within window counts as a skip | `30` |
 | `vibe_input_text_entity` | Optional `input_text.*` helper to poll for the vibe | — |
+| `tidal_provider` | MA provider used for likes/playlists | `tidal` |
+
+> **Music Assistant 2.8+ requires authentication.** Create a user in Music
+> Assistant (**Settings → Users**) and set `ma_username`/`ma_password`. Without
+> it, the add-on connects to the socket but every command is rejected with
+> "Authentication required" — the dashboard banner will say so.
 
 Secrets are managed by Home Assistant — no `.env` file. Options are read from
 `/data/options.json`; persistent state (taste profile, skip history) lives under

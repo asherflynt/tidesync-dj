@@ -49,8 +49,17 @@ EventCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
 class MusicAssistantClient:
-    def __init__(self, ws_url: str) -> None:
+    def __init__(
+        self,
+        ws_url: str,
+        username: str = "",
+        password: str = "",
+        token: str = "",
+    ) -> None:
         self._ws_url = ws_url
+        self._username = username
+        self._password = password
+        self._token = token
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._msg_ids = itertools.count(1)
         self._pending: dict[str, asyncio.Future] = {}
@@ -58,12 +67,20 @@ class MusicAssistantClient:
         self._recv_task: asyncio.Task | None = None
         self._connected = asyncio.Event()
         self._closing = False
+        self._is_open = False
+        self._authed = False
+        self.last_error: str | None = None
         self.server_info: dict[str, Any] = {}
         # Best-guess active queue, refreshed from players/queues.
         self.active_queue_id: str | None = None
         # Explicitly selected player (overrides auto-pick). In MA a player's own
         # queue_id equals its player_id.
         self.selected_player_id: str | None = None
+
+    @property
+    def is_connected(self) -> bool:
+        """True only when the socket is open AND we're authenticated."""
+        return self._is_open and self._authed
 
     # ------------------------------------------------------------------ #
     # Connection lifecycle
@@ -72,16 +89,79 @@ class MusicAssistantClient:
         self._event_cb = cb
 
     async def connect(self) -> None:
-        """Connect once and start the receive loop. Raises on failure."""
+        """Connect, handshake, and authenticate. Raises on failure."""
         _LOGGER.info("Connecting to Music Assistant at %s", self._ws_url)
         self._ws = await websockets.connect(self._ws_url, max_size=None)
         self._closing = False
+        self._is_open = True
         self._recv_task = asyncio.create_task(self._receive_loop())
         # Wait for the initial server_info handshake.
         try:
             await asyncio.wait_for(self._connected.wait(), timeout=10)
         except asyncio.TimeoutError:
             _LOGGER.warning("No server_info received; continuing anyway")
+        await self._authenticate()
+
+    async def _authenticate(self) -> None:
+        """Authenticate the session (MA 2.8+ requires this before any command).
+
+        Order of preference: an explicit MA token, then username/password login.
+        With no credentials we probe and assume an older, auth-less MA.
+        """
+        # 1) Explicit token.
+        if self._token:
+            try:
+                await self._command("auth", token=self._token)
+            except Exception as err:  # noqa: BLE001
+                self.last_error = f"MA token rejected: {err}"
+                raise ConnectionError(self.last_error)
+            self._authed = True
+            self.last_error = None
+            _LOGGER.info("Authenticated to Music Assistant with token")
+            return
+
+        # 2) Username / password (builtin provider).
+        if self._username and self._password:
+            res = await self._command(
+                "auth/login", username=self._username, password=self._password
+            )
+            if not (isinstance(res, dict) and res.get("success")):
+                msg = res.get("error") if isinstance(res, dict) else res
+                self.last_error = f"MA login failed: {msg}"
+                raise ConnectionError(self.last_error)
+            login_token = res.get("token") if isinstance(res, dict) else None
+            # Bind the session if login alone didn't authenticate it.
+            if not await self._authed_probe() and login_token:
+                try:
+                    await self._command("auth", token=login_token)
+                except Exception:  # noqa: BLE001
+                    pass
+            if not await self._authed_probe():
+                self.last_error = "MA login succeeded but the session is unauthorized"
+                raise ConnectionError(self.last_error)
+            self._authed = True
+            self.last_error = None
+            _LOGGER.info("Authenticated to Music Assistant as %s", self._username)
+            return
+
+        # 3) No credentials — works only on older MA without auth.
+        if await self._authed_probe():
+            self._authed = True
+            self.last_error = None
+            return
+        self.last_error = (
+            "Music Assistant requires a login. Set ma_username + ma_password "
+            "(or ma_token) in the add-on configuration."
+        )
+        raise ConnectionError(self.last_error)
+
+    async def _authed_probe(self) -> bool:
+        """Return True if a trivial command succeeds (i.e. we're authenticated)."""
+        try:
+            await self._command("players/all")
+            return True
+        except Exception:  # noqa: BLE001
+            return False
 
     async def run_forever(self, retry_delay: int = 5) -> None:
         """Maintain the connection, reconnecting with backoff on drops."""
@@ -97,6 +177,8 @@ class MusicAssistantClient:
             if self._closing:
                 break
             self._connected.clear()
+            self._authed = False
+            self._is_open = False
             _LOGGER.info("Reconnecting to MA in %ss", retry_delay)
             await asyncio.sleep(retry_delay)
 
@@ -108,6 +190,8 @@ class MusicAssistantClient:
         except websockets.ConnectionClosed:
             _LOGGER.info("MA websocket closed")
         finally:
+            self._is_open = False
+            self._authed = False
             self._fail_pending(ConnectionError("websocket closed"))
 
     async def _handle_message(self, raw: str | bytes) -> None:
@@ -193,8 +277,10 @@ class MusicAssistantClient:
             _LOGGER.warning("Could not list players: %s", err)
             return []
         views = [self._player_view(p) for p in players]
-        # Only surface players that are actually usable.
-        return [v for v in views if v["player_id"] and v["available"]]
+        # Keep any player with an id — idle MA players (AirPlay zones, etc.)
+        # report available=false until woken, but we still want to list/target
+        # them (Start Radio will power them on).
+        return [v for v in views if v["player_id"]]
 
     def set_player(self, player_id: str) -> None:
         """Explicitly target a player. Its queue_id == player_id in MA."""

@@ -20,6 +20,20 @@ configuration:
   ma_port:
     name: Music Assistant WebSocket port
     description: The Music Assistant WebSocket port (default 8095).
+  ma_username:
+    name: Music Assistant username
+    description: >-
+      Music Assistant 2.8+ requires a login. Create a user in Music Assistant
+      (Settings → Users) and enter its username here. Leave blank only if your
+      MA version has no authentication.
+  ma_password:
+    name: Music Assistant password
+    description: The password for the Music Assistant user above.
+  ma_token:
+    name: Music Assistant token (advanced)
+    description: >-
+      Optional. If you have a Music Assistant API token, enter it here instead
+      of a username/password. Takes precedence over the username/password.
   dj_tick_interval:
     name: DJ tick interval (seconds)
     description: >-

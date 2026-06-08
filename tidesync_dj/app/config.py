@@ -24,6 +24,9 @@ class Config:
     dj_tick_interval: int
     skip_penalty_seconds: int
     vibe_input_text_entity: str | None
+    ma_username: str
+    ma_password: str
+    ma_token: str
     tidal_provider: str
     data_dir: Path
 
@@ -38,6 +41,21 @@ def _load_options() -> dict:
             return json.load(fh)
     # Fallback for local development outside the add-on container.
     return {}
+
+
+def _clean_host(raw: str) -> str:
+    """Reduce a user-entered host to a bare hostname/IP.
+
+    Tolerates someone pasting a full URL with scheme and/or port into the host
+    field (e.g. 'http://192.168.2.6:8095' -> '192.168.2.6'). The port comes from
+    the dedicated ma_port option, so any embedded port here is dropped.
+    """
+    raw = (raw or "").strip()
+    if "://" in raw:
+        raw = raw.split("://", 1)[1]
+    raw = raw.split("/", 1)[0]  # drop any path
+    raw = raw.split(":", 1)[0]  # drop any embedded port
+    return raw or "homeassistant.local"
 
 
 def load_config() -> Config:
@@ -55,11 +73,14 @@ def load_config() -> Config:
     return Config(
         anthropic_api_key=str(_get("anthropic_api_key", "")),
         claude_model=str(_get("claude_model", "claude-sonnet-4-6")),
-        ma_host=str(_get("ma_host", "homeassistant.local")),
+        ma_host=_clean_host(str(_get("ma_host", "homeassistant.local"))),
         ma_port=int(_get("ma_port", 8095)),
         dj_tick_interval=int(_get("dj_tick_interval", 30)),
         skip_penalty_seconds=int(_get("skip_penalty_seconds", 30)),
         vibe_input_text_entity=vibe_entity or None,
+        ma_username=str(_get("ma_username", "")),
+        ma_password=str(_get("ma_password", "")),
+        ma_token=str(_get("ma_token", "")),
         tidal_provider=str(_get("tidal_provider", "") or "tidal"),
         data_dir=DATA_DIR,
     )
