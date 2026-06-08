@@ -89,10 +89,49 @@ class MusicAssistantClient:
     def on_event(self, cb: EventCallback) -> None:
         self._event_cb = cb
 
+    async def _resolve_url(self) -> str:
+        """Return the best WebSocket URL for this run.
+
+        When the configured host is a private LAN IP (192.168.x, 10.x, etc.)
+        we're almost certainly running inside a HA add-on container and the
+        connection goes through Docker hairpin NAT, which HA OS evicts after
+        ~30 s regardless of activity.  The Music Assistant add-on uses
+        host-networking, so it is also reachable via the Docker bridge gateway
+        (172.30.32.1 on stock HA OS).  Try that first; fall back to the
+        configured URL if it doesn't answer.
+        """
+        import re
+        import socket
+
+        lan_re = re.compile(r"^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)")
+        if not lan_re.match(self._ws_url.split("//")[-1].split(":")[0]):
+            return self._ws_url  # not a LAN IP — use as-is
+
+        # Extract port from original URL so the gateway candidate uses the same.
+        try:
+            port = int(self._ws_url.split(":")[-1].split("/")[0])
+        except ValueError:
+            port = 8095
+
+        gateway = "172.30.32.1"
+        candidate = f"ws://{gateway}:{port}/ws"
+        try:
+            sock = socket.create_connection((gateway, port), timeout=2)
+            sock.close()
+            _LOGGER.info(
+                "Using internal Docker gateway %s (avoids hairpin NAT on %s)",
+                candidate,
+                self._ws_url,
+            )
+            return candidate
+        except OSError:
+            return self._ws_url
+
     async def connect(self) -> None:
         """Connect, handshake, and authenticate. Raises on failure."""
-        _LOGGER.info("Connecting to Music Assistant at %s", self._ws_url)
-        self._ws = await websockets.connect(self._ws_url, max_size=None)
+        url = await self._resolve_url()
+        _LOGGER.info("Connecting to Music Assistant at %s", url)
+        self._ws = await websockets.connect(url, max_size=None)
         self._closing = False
         self._is_open = True
         self._recv_task = asyncio.create_task(self._receive_loop())

@@ -20,7 +20,7 @@ from typing import Any
 from claude_brain import ClaudeBrain
 from config import Config
 from ha_client import HAClient
-from ma_client import MusicAssistantClient, EVENT_QUEUE_UPDATED
+from ma_client import MusicAssistantClient, EVENT_QUEUE_UPDATED, EVENT_QUEUE_TIME_UPDATED
 from taste_profile import TasteProfile
 
 _LOGGER = logging.getLogger(__name__)
@@ -124,14 +124,35 @@ class DJEngine:
     # ------------------------------------------------------------------ #
     async def _on_ma_event(self, event: str, data: dict[str, Any]) -> None:
         _LOGGER.debug("MA event received: %s", event)
+
+        if event == "media_item_played":
+            # MA fires this when a new track starts — most reliable skip signal.
+            self._detect_skip({"current_item": data})
+            return
+
         if event != EVENT_QUEUE_UPDATED:
             return
-        _LOGGER.debug("queue_updated event data=%r", data)
+
         self._detect_skip(data)
-        remaining = data.get("items_remaining")
-        if remaining is None:
-            queue = await self._ma.get_queue()
-            remaining = queue.get("items_remaining", 0)
+
+        # Compute items_remaining directly from the event payload.
+        # The queue_updated event has 'items' (total count) and 'current_index'.
+        items_total = data.get("items")
+        current_index = data.get("current_index", 0)
+        if isinstance(items_total, int):
+            remaining = max(items_total - current_index - 1, 0)
+        else:
+            # Fallback: ask MA (only if socket is healthy)
+            if self._ma.is_connected:
+                try:
+                    queue = await self._ma.get_queue()
+                    remaining = queue.get("items_remaining", 0)
+                except Exception:  # noqa: BLE001
+                    return
+            else:
+                return
+
+        _LOGGER.debug("queue_updated: items_remaining=%s", remaining)
         if remaining < ENQUEUE_THRESHOLD:
             await self.tick(reason="queue_low")
 

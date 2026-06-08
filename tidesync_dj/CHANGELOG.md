@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.7
+
+- **Fix 30-second disconnect (hairpin NAT)**: when `ma_host` is a private LAN
+  IP, the add-on now probes `172.30.32.1` (the HA OS Docker bridge gateway)
+  first. MA uses host-networking so it listens there too, and this path avoids
+  the Docker hairpin NAT that HA OS evicts after ~30 s.
+- **Fix items_remaining calculation**: the `queue_updated` event carries
+  `items` (total count) and `current_index` — compute remaining directly
+  from these instead of making a round-trip `get_queue()` call that can hit
+  a closing socket.
+- **Add `media_item_played` event handling**: MA fires this when a new track
+  starts; use it as the primary skip-detection trigger.
+- **Raise skip_penalty_seconds default** from 30 s → 60 s so skips after a
+  longer listen are still recorded.
+
 ## 0.4.6
 
 - Suppress websockets library DEBUG noise so app-level logs are visible.
