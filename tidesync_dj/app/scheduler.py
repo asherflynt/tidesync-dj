@@ -163,6 +163,9 @@ class DJEngine:
         track_id = None
         if current:
             track_id = current.get("queue_item_id") or current.get("uri")
+        # No current item usually means a reconnect gap — don't misread it as a skip.
+        if track_id is None:
+            return
         if track_id == self._current_track_id:
             return
 

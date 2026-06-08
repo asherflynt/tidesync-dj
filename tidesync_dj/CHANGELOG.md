@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.4
+
+- **Log real WS close codes** — disconnect log now shows the WebSocket close
+  code and reason (e.g. 1006 / 1011) so the root cause of drops is identifiable.
+- **Commands wait for reconnect** — if a command fires during a brief socket
+  drop, it waits up to 5 s for the reconnect to complete before failing. Fixes
+  Start Radio losing tracks mid-sequence when the socket drops between search and
+  play_media calls.
+- **Skip detection hardened** — if `current_item` is absent in a queue response
+  (typical during a reconnect gap), skip detection no longer misreads the gap as
+  a track change and incorrectly records a skip.
+- `_authenticated` asyncio.Event added to `MusicAssistantClient`; cleared on
+  disconnect, set on successful auth — used by the command wait mechanism above.
+
 ## 0.4.3
 
 - Keep the Music Assistant connection alive: send a lightweight `info` command

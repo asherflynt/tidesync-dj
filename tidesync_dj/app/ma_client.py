@@ -66,6 +66,7 @@ class MusicAssistantClient:
         self._event_cb: EventCallback | None = None
         self._recv_task: asyncio.Task | None = None
         self._connected = asyncio.Event()
+        self._authenticated = asyncio.Event()
         self._closing = False
         self._is_open = False
         self._authed = False
@@ -116,6 +117,7 @@ class MusicAssistantClient:
                 self.last_error = f"MA token rejected: {err}"
                 raise ConnectionError(self.last_error)
             self._authed = True
+            self._authenticated.set()
             self.last_error = None
             _LOGGER.info("Authenticated to Music Assistant with token")
             return
@@ -140,6 +142,7 @@ class MusicAssistantClient:
                 self.last_error = "MA login succeeded but the session is unauthorized"
                 raise ConnectionError(self.last_error)
             self._authed = True
+            self._authenticated.set()
             self.last_error = None
             _LOGGER.info("Authenticated to Music Assistant as %s", self._username)
             return
@@ -147,6 +150,7 @@ class MusicAssistantClient:
         # 3) No credentials — works only on older MA without auth.
         if await self._authed_probe():
             self._authed = True
+            self._authenticated.set()
             self.last_error = None
             return
         self.last_error = (
@@ -216,6 +220,7 @@ class MusicAssistantClient:
             if self._closing:
                 break
             self._connected.clear()
+            self._authenticated.clear()
             self._authed = False
             self._is_open = False
             await asyncio.sleep(retry_delay)
@@ -225,11 +230,14 @@ class MusicAssistantClient:
         try:
             async for raw in self._ws:
                 await self._handle_message(raw)
-        except websockets.ConnectionClosed:
-            _LOGGER.info("MA websocket closed")
+        except websockets.ConnectionClosed as exc:
+            _LOGGER.info(
+                "MA websocket closed (code=%s reason=%r)", exc.code, exc.reason
+            )
         finally:
             self._is_open = False
             self._authed = False
+            self._authenticated.clear()
             self._fail_pending(ConnectionError("websocket closed"))
 
     async def _handle_message(self, raw: str | bytes) -> None:
@@ -280,6 +288,12 @@ class MusicAssistantClient:
     # Command helper
     # ------------------------------------------------------------------ #
     async def _command(self, command: str, **args: Any) -> Any:
+        if not self.is_connected:
+            # If we're mid-reconnect, wait briefly rather than failing immediately.
+            try:
+                await asyncio.wait_for(self._authenticated.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                raise ConnectionError("Music Assistant not connected")
         if self._ws is None:
             raise ConnectionError("not connected to Music Assistant")
         import json
