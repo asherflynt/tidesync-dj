@@ -28,12 +28,26 @@ You need:
 
 ## Using it
 
-- Start playing something in Music Assistant. As the queue runs low, TideSync
-  asks Claude for the next 2–3 tracks and appends them automatically.
+- In the **Playback** card, pick a Music Assistant player (your AirPlay zone,
+  etc.) and click **▶ Start Radio**. TideSync asks Claude for an opening set
+  from your taste profile, vibe, and time of day, plays it on that player, then
+  keeps the queue topped up automatically as it runs low.
+- (Or, if you start playback yourself in Music Assistant, TideSync will take
+  over topping up the queue once it runs low.)
 - Type a **vibe** ("late night focus", "high energy cooking") in the panel and
   click **Set Vibe** to steer the mood.
 - Click **Nudge DJ** to force a decision immediately.
 - The **decision log** shows Claude's reasoning for each pick.
+
+## Seed your taste from a YouTube Music playlist
+
+In the **Seed Taste** card, paste the URL of a **public** YouTube Music playlist
+and click **Seed**. TideSync reads the playlist's track and artist names and asks
+Claude to build your taste profile from them.
+
+- The playlist must be **public** — the fetch is unauthenticated.
+- This only shapes *what the DJ picks*. Playback still happens through **Tidal in
+  Music Assistant**; TideSync does not play YouTube Music itself.
 
 ## Optional: set the vibe from anywhere in HA
 
@@ -50,5 +64,12 @@ You need:
   common issue is the Music Assistant host/port or no active player/queue.
 - **"DJ decisions will fail" in the log** — the Anthropic API key is missing or
   blank. Add it in the Configuration tab.
+- **No players in the dropdown** — Music Assistant isn't reachable yet, or it has
+  no available players. Confirm the host/port and that a player is set up in MA.
+- **Start Radio says "none could be found"** — Claude picked tracks but Music
+  Assistant couldn't resolve them via its providers. Make sure Tidal (or another
+  provider) is connected and working in MA.
+- **Seeding fails** — the YouTube Music playlist must be **public**. Double-check
+  the URL contains a `list=` parameter.
 - **Music Assistant command errors** — MA's WebSocket command names can vary by
   version; they're centralized in `app/ma_client.py` (`CMD_*` constants).

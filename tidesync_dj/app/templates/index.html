@@ -33,10 +33,11 @@
   .now small { display: block; color: var(--muted); font-size: 13px; font-weight: 400;
     margin-top: 4px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
-  input[type=text] {
+  input[type=text], select {
     flex: 1; min-width: 200px; background: var(--panel2); border: 1px solid var(--border);
     color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px;
   }
+  select { cursor: pointer; }
   button {
     background: var(--accent); color: #04212f; border: 0; border-radius: 8px;
     padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
@@ -91,6 +92,17 @@
   </div>
 
   <div class="card">
+    <h2>Playback</h2>
+    <div class="row">
+      <select id="playerSelect" aria-label="Music Assistant player">
+        <option value="">Loading players…</option>
+      </select>
+      <button id="startRadio">▶ Start Radio</button>
+    </div>
+    <small id="playbackMsg" class="empty" style="display:block;margin-top:8px"></small>
+  </div>
+
+  <div class="card">
     <h2>Active Vibe</h2>
     <div class="row" style="margin-bottom:10px">
       <span class="vibe-pill" id="vibePill">no vibe set</span>
@@ -100,6 +112,21 @@
       <button id="setVibe">Set Vibe</button>
       <button class="ghost" id="nudge">Nudge DJ</button>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>Seed Taste from a YouTube Music Playlist</h2>
+    <small class="empty" style="display:block;margin-bottom:10px">
+      Uses a <b>public</b> YouTube Music playlist to build your taste profile.
+      Playback still happens via Tidal in Music Assistant — this only shapes what
+      the DJ picks.
+    </small>
+    <div class="row">
+      <input type="text" id="seedInput"
+        placeholder="https://music.youtube.com/playlist?list=…" />
+      <button id="seedBtn">Seed</button>
+    </div>
+    <small id="seedMsg" class="empty" style="display:block;margin-top:8px"></small>
   </div>
 
   <div class="card">
@@ -194,9 +221,64 @@
     }
   });
 
-  refreshStatus(); refreshLog();
+  async function refreshPlayers() {
+    try {
+      const { players } = await getJSON("/players");
+      const sel = document.getElementById("playerSelect");
+      const current = sel.value;
+      if (!players.length) {
+        sel.innerHTML = '<option value="">No players found</option>';
+        return;
+      }
+      sel.innerHTML = players.map(p =>
+        `<option value="${esc(p.player_id)}">${esc(p.name || p.player_id)}</option>`).join("");
+      const selected = players.find(p => p.selected);
+      sel.value = selected ? selected.player_id : (current || players[0].player_id);
+    } catch (e) { /* MA not connected yet */ }
+  }
+
+  document.getElementById("playerSelect").addEventListener("change", async (e) => {
+    if (e.target.value) await postJSON("/players/select", { player_id: e.target.value });
+  });
+
+  document.getElementById("startRadio").addEventListener("click", async (e) => {
+    const sel = document.getElementById("playerSelect");
+    const msg = document.getElementById("playbackMsg");
+    if (sel.value) await postJSON("/players/select", { player_id: sel.value });
+    e.target.disabled = true; e.target.textContent = "Starting…";
+    msg.textContent = "Asking Claude to open the set…";
+    try {
+      const r = await postJSON("/start_radio");
+      msg.textContent = r.ok
+        ? `Started — ${(r.decision && r.decision.enqueued) || 0} tracks queued.`
+        : `Couldn't start: ${r.error || "unknown error"}`;
+    } catch (err) { msg.textContent = "Start radio failed."; }
+    finally {
+      e.target.disabled = false; e.target.textContent = "▶ Start Radio";
+      refreshStatus(); refreshLog();
+    }
+  });
+
+  document.getElementById("seedBtn").addEventListener("click", async (e) => {
+    const input = document.getElementById("seedInput");
+    const msg = document.getElementById("seedMsg");
+    const v = input.value.trim();
+    if (!v) { msg.textContent = "Paste a public YouTube Music playlist URL first."; return; }
+    e.target.disabled = true; e.target.textContent = "Seeding…";
+    msg.textContent = "Fetching playlist and analyzing your taste…";
+    try {
+      const r = await postJSON("/seed", { playlist: v });
+      msg.textContent = r.ok
+        ? `Seeded from ${r.track_count} tracks — taste profile updated.`
+        : `Seed failed: ${r.error || "unknown error"}`;
+    } catch (err) { msg.textContent = "Seed failed."; }
+    finally { e.target.disabled = false; e.target.textContent = "Seed"; }
+  });
+
+  refreshStatus(); refreshLog(); refreshPlayers();
   setInterval(refreshStatus, 5000);
   setInterval(refreshLog, 8000);
+  setInterval(refreshPlayers, 15000);
 </script>
 </body>
 </html>

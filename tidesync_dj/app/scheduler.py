@@ -180,11 +180,11 @@ class DJEngine:
     # ------------------------------------------------------------------ #
     # Decision cycle
     # ------------------------------------------------------------------ #
-    async def build_context(self) -> dict[str, Any]:
+    async def build_context(self, fresh_start: bool = False) -> dict[str, Any]:
         queue = await self._ma.get_queue()
         history = await self._ma.get_history(n=20)
         duration_mins = round((time.monotonic() - self.session_started) / 60)
-        return {
+        ctx = {
             "taste_profile": self._taste.summary,
             "recent_history": [_track_label(i) for i in history],
             "current_track": _track_label(queue.get("current_item")),
@@ -195,11 +195,20 @@ class DJEngine:
             "time_of_day": _time_of_day(),
             "listening_duration_mins": duration_mins,
         }
+        if fresh_start:
+            ctx["fresh_start"] = True
+            ctx["instruction"] = (
+                "Starting a brand new radio session — open with tracks that set "
+                "the mood from the taste profile, vibe, and time of day."
+            )
+        return ctx
 
-    async def tick(self, reason: str = "manual") -> dict[str, Any]:
-        # Serialize ticks so overlapping triggers don't double-enqueue.
+    async def _run_decision(
+        self, reason: str, play_option: str = "add", fresh_start: bool = False
+    ) -> dict[str, Any]:
+        """Shared decision path used by tick() and start_radio()."""
         async with self._tick_lock:
-            context = await self.build_context()
+            context = await self.build_context(fresh_start=fresh_start)
             try:
                 decision = await self._brain.decide(context)
             except Exception as err:  # noqa: BLE001
@@ -207,7 +216,9 @@ class DJEngine:
                 return {"ok": False, "error": str(err)}
 
             queries = [t.query for t in decision.next_tracks]
-            enqueued = await self._ma.enqueue_queries(queries)
+            enqueued = await self._ma.enqueue_queries(queries, option=play_option)
+            if play_option == "play":
+                await self._ma.ensure_playing()
             self.stats["discoveries"] += len(enqueued)
 
             entry = {
@@ -232,6 +243,7 @@ class DJEngine:
                     "mood_shift": decision.mood_shift,
                     "enqueued": len(enqueued),
                     "vibe": self.vibe_prompt,
+                    "reason": reason,
                 },
             )
 
@@ -240,7 +252,71 @@ class DJEngine:
                 history = await self._ma.get_history(n=30)
                 await self._taste.maybe_update(self._brain, history)
 
+            if play_option == "play" and not enqueued:
+                return {
+                    "ok": False,
+                    "error": "Claude picked tracks but none could be found/"
+                    "resolved in Music Assistant.",
+                    "decision": entry,
+                }
             return {"ok": True, "decision": entry}
+
+    async def tick(self, reason: str = "manual") -> dict[str, Any]:
+        return await self._run_decision(reason=reason, play_option="add")
+
+    async def start_radio(self) -> dict[str, Any]:
+        """Pick a player if needed, then start playback with a fresh set."""
+        player = await self._ensure_player()
+        if not player:
+            return {
+                "ok": False,
+                "error": "No Music Assistant player available to start radio on.",
+            }
+        _LOGGER.info("Starting radio on player %s", player)
+        return await self._run_decision(
+            reason="start_radio", play_option="play", fresh_start=True
+        )
+
+    # ------------------------------------------------------------------ #
+    # Players
+    # ------------------------------------------------------------------ #
+    async def list_players(self) -> list[dict[str, Any]]:
+        players = await self._ma.get_players()
+        for p in players:
+            p["selected"] = p["player_id"] == self._ma.selected_player_id
+        return players
+
+    def select_player(self, player_id: str) -> None:
+        self._ma.set_player(player_id)
+
+    async def _ensure_player(self) -> str | None:
+        """Return a target player id, auto-selecting the first if none chosen."""
+        if self._ma.selected_player_id:
+            return self._ma.selected_player_id
+        players = await self._ma.get_players()
+        if players:
+            self._ma.set_player(players[0]["player_id"])
+            return self._ma.selected_player_id
+        return None
+
+    # ------------------------------------------------------------------ #
+    # Taste seeding
+    # ------------------------------------------------------------------ #
+    async def seed_from_playlist(self, playlist: str) -> dict[str, Any]:
+        """Seed the taste profile from a public YouTube Music playlist."""
+        from yt_seed import fetch_playlist_tracks
+
+        try:
+            tracks = await asyncio.to_thread(fetch_playlist_tracks, playlist)
+        except ValueError as err:
+            return {"ok": False, "error": str(err)}
+        except RuntimeError as err:
+            return {"ok": False, "error": str(err)}
+
+        summary = await self._taste.seed_from_tracks(
+            self._brain, tracks, source="youtube_music"
+        )
+        return {"ok": True, "track_count": len(tracks), "summary": summary}
 
     # ------------------------------------------------------------------ #
     # Read-only views for the API/UI
@@ -259,6 +335,8 @@ class DJEngine:
             "items_remaining": queue.get("items_remaining", 0),
             "ma_connected": self._ma.active_queue_id is not None,
             "ma_host": self._config.ma_host,
+            "selected_player_id": self._ma.selected_player_id,
+            "taste_seeded": self._taste.is_bootstrapped,
             "session_minutes": round((time.monotonic() - self.session_started) / 60),
             "stats": self.stats,
             "model": self._config.claude_model,

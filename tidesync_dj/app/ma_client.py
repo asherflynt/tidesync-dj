@@ -33,6 +33,7 @@ CMD_QUEUES_ALL = "player_queues/all"
 CMD_QUEUE_ITEMS = "player_queues/items"
 CMD_PLAY_MEDIA = "player_queues/play_media"
 CMD_NEXT = "players/cmd/next"
+CMD_PLAY = "players/cmd/play"
 CMD_SEARCH = "music/search"
 CMD_LIBRARY_TRACKS = "music/tracks/library_items"
 
@@ -56,6 +57,9 @@ class MusicAssistantClient:
         self.server_info: dict[str, Any] = {}
         # Best-guess active queue, refreshed from players/queues.
         self.active_queue_id: str | None = None
+        # Explicitly selected player (overrides auto-pick). In MA a player's own
+        # queue_id equals its player_id.
+        self.selected_player_id: str | None = None
 
     # ------------------------------------------------------------------ #
     # Connection lifecycle
@@ -164,10 +168,48 @@ class MusicAssistantClient:
         return await asyncio.wait_for(fut, timeout=30)
 
     # ------------------------------------------------------------------ #
+    # Players
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _player_view(player: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "player_id": player.get("player_id") or player.get("id"),
+            "name": player.get("display_name") or player.get("name"),
+            "available": player.get("available", True),
+            "powered": player.get("powered"),
+            "state": player.get("state"),
+            "provider": player.get("provider"),
+        }
+
+    async def get_players(self) -> list[dict[str, Any]]:
+        """List players known to Music Assistant (AirPlay zones, etc.)."""
+        try:
+            players = await self._command(CMD_PLAYERS_ALL) or []
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not list players: %s", err)
+            return []
+        views = [self._player_view(p) for p in players]
+        # Only surface players that are actually usable.
+        return [v for v in views if v["player_id"] and v["available"]]
+
+    def set_player(self, player_id: str) -> None:
+        """Explicitly target a player. Its queue_id == player_id in MA."""
+        self.selected_player_id = player_id
+        self.active_queue_id = player_id
+        _LOGGER.info("Selected MA player: %s", player_id)
+
+    # ------------------------------------------------------------------ #
     # High-level operations
     # ------------------------------------------------------------------ #
     async def refresh_active_queue(self) -> str | None:
-        """Pick the queue that's currently playing as the DJ target."""
+        """Resolve the DJ target queue.
+
+        Prefers an explicitly selected player; otherwise picks the queue that's
+        currently playing, falling back to the first available one.
+        """
+        if self.selected_player_id:
+            self.active_queue_id = self.selected_player_id
+            return self.active_queue_id
         try:
             queues = await self._command(CMD_QUEUES_ALL) or []
         except Exception as err:  # noqa: BLE001
@@ -232,10 +274,17 @@ class MusicAssistantClient:
         tracks = result.get("tracks") if isinstance(result, dict) else result
         return tracks[0] if tracks else None
 
-    async def enqueue_queries(self, queries: list[str]) -> list[dict[str, Any]]:
-        """Resolve queries to tracks and append them to the active queue.
+    async def enqueue_queries(
+        self, queries: list[str], option: str = "add"
+    ) -> list[dict[str, Any]]:
+        """Resolve queries to tracks and queue them on the active queue.
 
-        Returns the list of tracks that were successfully enqueued.
+        `option` maps to MA's play_media options:
+          * "add"     — append without interrupting playback (normal DJ flow)
+          * "play"    — start playing this now (used by Start Radio); the first
+                        track plays immediately, the rest are appended.
+
+        Returns the list of tracks that were successfully queued.
         """
         queue_id = self.active_queue_id or await self.refresh_active_queue()
         if not queue_id:
@@ -243,6 +292,7 @@ class MusicAssistantClient:
             return []
 
         enqueued: list[dict[str, Any]] = []
+        first = True
         for query in queries:
             track = await self.search_track(query)
             if not track:
@@ -250,17 +300,32 @@ class MusicAssistantClient:
             uri = track.get("uri")
             if not uri:
                 continue
+            # Only the first track of a "play" batch interrupts; the rest append.
+            this_option = option if (first and option == "play") else "add"
             try:
                 await self._command(
                     CMD_PLAY_MEDIA,
                     queue_id=queue_id,
                     media=uri,
-                    option="add",  # append without interrupting playback
+                    option=this_option,
                 )
                 enqueued.append(track)
+                first = False
             except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Failed to enqueue %r: %s", query, err)
+                _LOGGER.warning("Failed to queue %r: %s", query, err)
         return enqueued
+
+    async def ensure_playing(self, player_id: str | None = None) -> bool:
+        """Send a play command so the selected player actually starts."""
+        player_id = player_id or self.active_queue_id or self.selected_player_id
+        if not player_id:
+            return False
+        try:
+            await self._command(CMD_PLAY, player_id=player_id)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Play command failed: %s", err)
+            return False
 
     async def skip(self) -> bool:
         queue = await self.get_queue()

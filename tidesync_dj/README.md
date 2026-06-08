@@ -73,8 +73,30 @@ Secrets are managed by Home Assistant — no `.env` file. Options are read from
 | `GET`  | `/status` | DJ state, now playing, active vibe, stats |
 | `POST` | `/vibe` | Set vibe: `{"prompt": "late night focus"}` |
 | `GET`  | `/queue` | Current MA queue |
+| `GET`  | `/players` | Available Music Assistant players |
+| `POST` | `/players/select` | Choose a player: `{"player_id": "..."}` |
+| `POST` | `/start_radio` | Start playback with a fresh AI-picked set |
+| `POST` | `/seed` | Seed taste from a YouTube Music playlist: `{"playlist": "<url>"}` |
 | `POST` | `/tick` | Manually trigger a decision cycle |
 | `GET`  | `/history` | Recent DJ decisions |
+
+### Players & Start Radio
+
+The dashboard lists the players Music Assistant knows about (your AirPlay zones,
+etc.). Pick one and hit **Start Radio** — TideSync asks Claude for an opening
+set based on your taste profile, vibe, and time of day, plays it on the selected
+player, and then keeps the queue topped up automatically as it runs low.
+
+### Seeding taste from YouTube Music
+
+You can bootstrap your taste profile from a **public** YouTube Music playlist:
+paste its URL in the dashboard and click **Seed**. TideSync reads the playlist's
+track/artist names (unauthenticated, via `ytmusicapi`) and asks Claude to build
+your taste summary from them.
+
+> This only *shapes what the DJ picks* — playback still happens through **Tidal
+> in Music Assistant**. TideSync does not play YouTube Music, and private
+> playlists are not supported (the fetch is unauthenticated).
 
 ## Home Assistant integration
 

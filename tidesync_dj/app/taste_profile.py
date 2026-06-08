@@ -103,3 +103,20 @@ class TasteProfile:
         _LOGGER.info("Refreshing taste profile summary")
         summary = await brain.summarize_taste(recent, previous=self.summary)
         self.set_summary(summary)
+
+    async def seed_from_tracks(
+        self, brain, tracks: list[dict[str, Any]], source: str = "playlist"
+    ) -> str:
+        """Explicit user-driven seed (e.g. a YouTube Music playlist).
+
+        Refines the existing summary with the seed tracks so prior context isn't
+        lost, then persists. Returns the new summary.
+        """
+        if not tracks:
+            return self.summary
+        _LOGGER.info("Seeding taste profile from %d %s tracks", len(tracks), source)
+        summary = await brain.summarize_taste(tracks, previous=self.summary)
+        self.set_summary(summary)
+        self._data["seeded_from"] = source
+        self._save()
+        return summary

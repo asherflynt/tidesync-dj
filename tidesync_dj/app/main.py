@@ -59,6 +59,14 @@ class VibeBody(BaseModel):
     prompt: str
 
 
+class PlayerBody(BaseModel):
+    player_id: str
+
+
+class SeedBody(BaseModel):
+    playlist: str
+
+
 def _engine(request: Request) -> DJEngine:
     return request.app.state.engine
 
@@ -104,6 +112,29 @@ async def tick(request: Request):
     result = await _engine(request).tick(reason="manual")
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)
+
+
+@app.get("/players")
+async def players(request: Request):
+    return {"players": await _engine(request).list_players()}
+
+
+@app.post("/players/select")
+async def select_player(request: Request, body: PlayerBody):
+    _engine(request).select_player(body.player_id)
+    return {"ok": True, "player_id": body.player_id}
+
+
+@app.post("/start_radio")
+async def start_radio(request: Request):
+    result = await _engine(request).start_radio()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.post("/seed")
+async def seed(request: Request, body: SeedBody):
+    result = await _engine(request).seed_from_playlist(body.playlist.strip())
+    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
 
 @app.get("/history")
