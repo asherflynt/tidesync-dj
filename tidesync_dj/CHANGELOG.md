@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.6
+
+- Suppress websockets library DEBUG noise so app-level logs are visible.
+- Log every MA event type received (DEBUG) so we can confirm which event
+  names MA actually sends and fix the queue_updated listener if needed.
+
 ## 0.4.5
 
 - Fix auth deadlock introduced in 0.4.4: `_command` now gates on socket-open

@@ -22,6 +22,8 @@ from scheduler import DJEngine
 from taste_profile import TasteProfile
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# websockets internal debug is extremely noisy — suppress it.
+logging.getLogger("websockets").setLevel(logging.WARNING)
 _LOGGER = logging.getLogger("tidesync")
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))

@@ -123,6 +123,7 @@ class DJEngine:
     # Triggers
     # ------------------------------------------------------------------ #
     async def _on_ma_event(self, event: str, data: dict[str, Any]) -> None:
+        _LOGGER.debug("MA event received: %s", event)
         if event != EVENT_QUEUE_UPDATED:
             return
         _LOGGER.debug("queue_updated event data=%r", data)
