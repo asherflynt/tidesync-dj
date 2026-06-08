@@ -53,7 +53,7 @@ def load_config() -> Config:
 
     return Config(
         anthropic_api_key=str(_get("anthropic_api_key", "")),
-        claude_model=str(_get("claude_model", "claude-opus-4-8")),
+        claude_model=str(_get("claude_model", "claude-sonnet-4-6")),
         ma_host=str(_get("ma_host", "homeassistant.local")),
         ma_port=int(_get("ma_port", 8095)),
         dj_tick_interval=int(_get("dj_tick_interval", 30)),

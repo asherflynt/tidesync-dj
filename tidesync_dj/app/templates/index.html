@@ -57,6 +57,12 @@
   .entry ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
   .shift { color: var(--accent2); font-weight: 600; }
   .empty { color: var(--muted); font-size: 13px; }
+  .banner { display: none; border-radius: 12px; padding: 14px 16px; font-size: 14px;
+    border: 1px solid; }
+  .banner.show { display: block; }
+  .banner.warn { background: #2a1d12; border-color: #6b4a25; color: #f4c98a; }
+  .banner.info { background: #122433; border-color: #2c5067; color: #9ad0f0; }
+  .banner b { color: inherit; }
 </style>
 </head>
 <body>
@@ -67,6 +73,17 @@
 </header>
 
 <div class="wrap">
+  <div class="banner warn" id="setupBanner">
+    <b>Setup needed.</b> No Anthropic API key is configured, so the DJ can't make
+    decisions yet. Open this add-on's <b>Configuration</b> tab in Home Assistant,
+    paste your <code>sk-ant-…</code> key, click <b>Save</b>, then restart the add-on.
+  </div>
+  <div class="banner info" id="maBanner">
+    <b>Waiting for Music Assistant.</b> Can't reach Music Assistant at
+    <span id="maHost"></span> yet. Confirm the host/port in the Configuration tab
+    and that a player/queue is active.
+  </div>
+
   <div class="card">
     <h2>Now Playing</h2>
     <div class="now" id="nowPlaying">—</div>
@@ -127,6 +144,11 @@
     try {
       const s = await getJSON("/status");
       document.getElementById("conn").classList.toggle("on", !!s.ma_connected);
+      // Onboarding banners.
+      document.getElementById("setupBanner").classList.toggle("show", s.configured === false);
+      document.getElementById("maHost").textContent = s.ma_host || "the configured host";
+      document.getElementById("maBanner").classList.toggle(
+        "show", s.configured !== false && !s.ma_connected);
       document.getElementById("nowPlaying").textContent = s.now_playing || "—";
       document.getElementById("meta").textContent =
         `${s.time_of_day} · ${s.items_remaining} in queue · ${s.session_minutes} min session`;

@@ -41,7 +41,7 @@ and appends them to the active queue.
 | Option | Description | Default |
 |--------|-------------|---------|
 | `anthropic_api_key` | Anthropic API key | — |
-| `claude_model` | `claude-opus-4-8` (best), `claude-sonnet-4-6` (cheaper for frequent ticks), or `claude-haiku-4-5` | `claude-opus-4-8` |
+| `claude_model` | `claude-sonnet-4-6` (default — best cost/quality balance), `claude-opus-4-8` (sharpest sequencing), or `claude-haiku-4-5` (cheapest) | `claude-sonnet-4-6` |
 | `ma_host` | Music Assistant hostname | `homeassistant.local` |
 | `ma_port` | MA WebSocket port | `8095` |
 | `dj_tick_interval` | Polling fallback interval (seconds) | `30` |
@@ -51,6 +51,19 @@ and appends them to the active queue.
 Secrets are managed by Home Assistant — no `.env` file. Options are read from
 `/data/options.json`; persistent state (taste profile, skip history) lives under
 `/data` and survives restarts.
+
+## Security & privacy
+
+- Your **Anthropic API key** is stored only in Home Assistant's add-on options
+  (`/data/options.json`). It is **never** logged, returned by any API endpoint,
+  shown in the dashboard, or committed to this repository.
+- The web UI is served **only through authenticated Home Assistant ingress** —
+  there is no `ports:` mapping, so the service is not exposed on the host network.
+- The add-on requests **least privilege**: only `homeassistant_api` (Core REST
+  API for reading states and firing the `tidesync_dj_decision` event). It does
+  not request Supervisor (`hassio_api`), host, or device access.
+- Runtime data files (`options.json`, `taste_profile.json`, `data/`) are
+  `.gitignore`d so they can't be accidentally committed.
 
 ## API (served under ingress)
 
@@ -74,8 +87,8 @@ Secrets are managed by Home Assistant — no `.env` file. Options are read from
 
 - The Music Assistant command names in `app/ma_client.py` follow MA's documented
   WebSocket schema. If your MA version differs, adjust the `CMD_*` constants.
-- The model is configurable: Opus 4.8 gives the best sequencing; Sonnet 4.6 is a
-  good cost/latency choice if the DJ ticks frequently.
+- The model is configurable: Sonnet 4.6 (the default) is the best cost/latency
+  choice for a DJ that ticks frequently; Opus 4.8 gives the sharpest sequencing.
 
 ## Reference
 

@@ -246,13 +246,19 @@ class DJEngine:
     # Read-only views for the API/UI
     # ------------------------------------------------------------------ #
     async def status(self) -> dict[str, Any]:
-        queue = await self._ma.get_queue()
+        # Stay resilient during onboarding / before MA is reachable.
+        try:
+            queue = await self._ma.get_queue()
+        except Exception:  # noqa: BLE001
+            queue = {}
         return {
+            "configured": bool(self._config.anthropic_api_key),
             "now_playing": _track_label(queue.get("current_item")),
             "vibe": self.vibe_prompt or None,
             "time_of_day": _time_of_day(),
             "items_remaining": queue.get("items_remaining", 0),
             "ma_connected": self._ma.active_queue_id is not None,
+            "ma_host": self._config.ma_host,
             "session_minutes": round((time.monotonic() - self.session_started) / 60),
             "stats": self.stats,
             "model": self._config.claude_model,

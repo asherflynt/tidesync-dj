@@ -1,0 +1,38 @@
+configuration:
+  anthropic_api_key:
+    name: Anthropic API key (required)
+    description: >-
+      Your Claude API key from console.anthropic.com (starts with "sk-ant-").
+      Stored privately by Home Assistant and never written to logs or the UI.
+  claude_model:
+    name: Claude model
+    description: >-
+      Which Claude model acts as the DJ brain. "claude-sonnet-4-6" (default) is
+      the best balance of quality and cost for a DJ that decides often. Choose
+      "claude-opus-4-8" for the sharpest sequencing, or "claude-haiku-4-5" for
+      the cheapest/fastest option.
+  ma_host:
+    name: Music Assistant host
+    description: >-
+      Hostname or IP where Music Assistant is reachable. If MA runs as an add-on
+      on this same machine, "homeassistant.local" usually works; otherwise use
+      your HA server's IP address.
+  ma_port:
+    name: Music Assistant WebSocket port
+    description: The Music Assistant WebSocket port (default 8095).
+  dj_tick_interval:
+    name: DJ tick interval (seconds)
+    description: >-
+      How often the DJ checks the queue as a fallback when no queue events fire.
+      Lower = more responsive, more API calls.
+  skip_penalty_seconds:
+    name: Skip detection window (seconds)
+    description: >-
+      If a track changes within this many seconds of starting, it's treated as
+      a skip and that artist is avoided for the rest of the session.
+  vibe_input_text_entity:
+    name: Vibe helper entity (optional)
+    description: >-
+      Optional input_text.* helper to poll for the active vibe, so you can set
+      it from any HA dashboard or phone (e.g. input_text.tidesync_vibe). Leave
+      blank to set the vibe only from the add-on panel.

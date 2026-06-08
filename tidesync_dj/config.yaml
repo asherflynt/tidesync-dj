@@ -11,11 +11,12 @@ ingress: true
 ingress_port: 8099
 panel_icon: mdi:music-note-bluetooth
 panel_title: TideSync DJ
+# Only the Core REST API is needed (states + events). We deliberately do NOT
+# request hassio_api / host access — least privilege.
 homeassistant_api: true
-hassio_api: true
 options:
   anthropic_api_key: ""
-  claude_model: "claude-opus-4-8"
+  claude_model: "claude-sonnet-4-6"
   ma_host: "homeassistant.local"
   ma_port: 8095
   dj_tick_interval: 30
@@ -23,7 +24,7 @@ options:
   vibe_input_text_entity: ""
 schema:
   anthropic_api_key: str
-  claude_model: list(claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5)
+  claude_model: list(claude-sonnet-4-6|claude-opus-4-8|claude-haiku-4-5)
   ma_host: str
   ma_port: int
   dj_tick_interval: int
