@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.5
+
+- Fix auth deadlock introduced in 0.4.4: `_command` now gates on socket-open
+  (`_is_open`) rather than fully-authenticated (`is_connected`), so the auth
+  handshake can proceed without timing out.
+- Enable DEBUG logging temporarily to capture raw `queue_updated` event
+  payloads and skip-detection inputs for diagnosing skip detection.
+
 ## 0.4.4
 
 - **Log real WS close codes** — disconnect log now shows the WebSocket close
