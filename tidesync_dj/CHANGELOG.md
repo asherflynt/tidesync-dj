@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.2
+
+Fixes Start Radio / Nudge DJ / Seed all failing with
+"AsyncMessages.create() got an unexpected keyword argument 'output_config'":
+
+- Pass `output_config` / `thinking` via the SDK's `extra_body` instead of as
+  typed keyword arguments, so requests work regardless of the installed
+  anthropic SDK version. (Verified against anthropic 0.69.0.)
+- Gate `effort` and adaptive `thinking` by model: they're only sent for Opus
+  4.x and Sonnet 4.6. Haiku 4.5 (which rejects `effort`) now uses structured
+  outputs only — fixing decisions for the default-cheap model choice.
+- Seeding now reports a clear error if the taste analysis fails instead of a
+  bare 500 / "Seed failed".
+
 ## 0.4.1
 
 - Surface socket-level connection failures (wrong host/port, connection refused)

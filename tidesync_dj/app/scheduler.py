@@ -329,14 +329,20 @@ class DJEngine:
 
         try:
             tracks = await asyncio.to_thread(fetch_playlist_tracks, playlist)
-        except ValueError as err:
-            return {"ok": False, "error": str(err)}
-        except RuntimeError as err:
+        except (ValueError, RuntimeError) as err:
             return {"ok": False, "error": str(err)}
 
-        summary = await self._taste.seed_from_tracks(
-            self._brain, tracks, source="youtube_music"
-        )
+        try:
+            summary = await self._taste.seed_from_tracks(
+                self._brain, tracks, source="youtube_music"
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Seed taste summary failed: %s", err)
+            return {
+                "ok": False,
+                "error": f"Fetched {len(tracks)} tracks, but Claude analysis "
+                f"failed: {err}",
+            }
         return {"ok": True, "track_count": len(tracks), "summary": summary}
 
     # ------------------------------------------------------------------ #

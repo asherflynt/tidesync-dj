@@ -86,6 +86,32 @@ class ClaudeBrain:
     def __init__(self, api_key: str, model: str) -> None:
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
         self._model = model
+        # Capability gating by model. `effort` and adaptive `thinking` are only
+        # valid on Opus 4.x and Sonnet 4.6 — sending them to Haiku 4.5 returns a
+        # 400. Structured outputs (output_config.format) work on all of these.
+        m = model.lower()
+        self._supports_effort = "opus" in m or "sonnet-4-6" in m
+        self._supports_thinking = "opus" in m or "sonnet-4-6" in m
+
+    def _extra_body(self, effort: str | None, json_schema: dict | None) -> dict:
+        """Build the request body fields not in the SDK's typed signature.
+
+        We pass `output_config` / `thinking` via extra_body so the request works
+        regardless of the installed anthropic SDK version (older versions don't
+        accept these as keyword arguments), and so we can gate them per model.
+        """
+        output_config: dict[str, Any] = {}
+        if json_schema is not None:
+            output_config["format"] = {"type": "json_schema", "schema": json_schema}
+        if effort and self._supports_effort:
+            output_config["effort"] = effort
+
+        extra: dict[str, Any] = {}
+        if output_config:
+            extra["output_config"] = output_config
+        if self._supports_thinking:
+            extra["thinking"] = {"type": "adaptive"}
+        return extra
 
     def _system_blocks(self, taste_profile: str) -> list[dict[str, Any]]:
         """Stable cached prefix: core prompt + taste profile.
@@ -119,16 +145,9 @@ class ClaudeBrain:
             response = await self._client.messages.create(
                 model=self._model,
                 max_tokens=2000,
-                thinking={"type": "adaptive"},
-                output_config={
-                    "effort": "medium",
-                    "format": {
-                        "type": "json_schema",
-                        "schema": DECISION_SCHEMA,
-                    },
-                },
                 system=self._system_blocks(taste_profile),
                 messages=[{"role": "user", "content": self._user_payload(context)}],
+                extra_body=self._extra_body(effort="medium", json_schema=DECISION_SCHEMA),
             )
         except anthropic.APIError as err:
             _LOGGER.error("Claude decision call failed: %s", err)
@@ -176,9 +195,8 @@ class ClaudeBrain:
             response = await self._client.messages.create(
                 model=self._model,
                 max_tokens=1000,
-                thinking={"type": "adaptive"},
-                output_config={"effort": "low"},
                 messages=[{"role": "user", "content": prompt}],
+                extra_body=self._extra_body(effort="low", json_schema=None),
             )
         except anthropic.APIError as err:
             _LOGGER.error("Taste summary failed: %s", err)
