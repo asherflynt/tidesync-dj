@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1
+
+Build fixes (the 0.3.0 image failed to build on Home Assistant):
+
+- Use a valid base image tag: `…/{arch}-base-python:3.12-alpine3.21` (the bare
+  `:3.12` tag does not exist).
+- Drop the unused `music-assistant-client` dependency — the MA client uses raw
+  `websockets` — removing a large, compile-prone dependency tree.
+- Use plain `uvicorn` instead of `uvicorn[standard]` to avoid musl-compiling
+  `uvloop`/`httptools`/`watchfiles`.
+- Add a temporary `build-base`/`libffi-dev` layer as a fallback for any C
+  extension, removed after install.
+
 ## 0.3.0
 
 - **Like in Tidal**: favorite the current track from the dashboard (`/like`),
