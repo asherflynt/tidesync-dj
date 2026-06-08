@@ -256,19 +256,27 @@ class MusicAssistantClient:
                 self.last_error = f"Music Assistant connection error: {err}"
                 _LOGGER.warning("MA connection error: %s", err)
             else:
-                # Connected and authenticated. Hold until the socket drops; a
-                # drop here is transient (e.g. idle reset) and recovers quietly.
+                # Connected and authenticated.
+                # Run post-connect helpers independently so a Python-level bug
+                # in our own code doesn't get misread as a socket drop and
+                # trigger an instant reconnect loop.
                 try:
                     await self.refresh_active_queue()
-                    if self._reconnect_cb:
-                        try:
-                            await self._reconnect_cb()
-                        except Exception as cb_err:  # noqa: BLE001
-                            _LOGGER.debug("Reconnect callback error: %s", cb_err)
-                    if self._recv_task:
-                        await self._recv_task
                 except Exception as err:  # noqa: BLE001
-                    _LOGGER.info("MA connection dropped, reconnecting: %s", err)
+                    _LOGGER.warning("refresh_active_queue error (socket still open): %s", err)
+
+                if self._reconnect_cb:
+                    try:
+                        await self._reconnect_cb()
+                    except Exception as cb_err:  # noqa: BLE001
+                        _LOGGER.debug("Reconnect callback error: %s", cb_err)
+
+                # Block here until the socket actually closes.
+                if self._recv_task:
+                    try:
+                        await self._recv_task
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.info("MA connection dropped, reconnecting: %s", err)
 
             if self._closing:
                 break
@@ -414,11 +422,23 @@ class MusicAssistantClient:
     # ------------------------------------------------------------------ #
     # High-level operations
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _queue_id_of(q: Any) -> str | None:
+        """Extract a queue id from either a dict or a bare string."""
+        if isinstance(q, str):
+            return q or None
+        if isinstance(q, dict):
+            return q.get("queue_id") or q.get("id") or None
+        return None
+
     async def refresh_active_queue(self) -> str | None:
         """Resolve the DJ target queue.
 
         Prefers an explicitly selected player; otherwise picks the queue that's
         currently playing, falling back to the first available one.
+
+        MA 2.8.9 changed player_queues/all to return plain queue-id strings
+        instead of full dicts, so we handle both shapes.
         """
         if self.selected_player_id:
             self.active_queue_id = self.selected_player_id
@@ -429,10 +449,14 @@ class MusicAssistantClient:
             _LOGGER.warning("Could not list queues: %s", err)
             return self.active_queue_id
 
-        playing = [q for q in queues if q.get("state") == "playing"]
+        _LOGGER.debug("player_queues/all sample: %s", queues[:2] if queues else [])
+
+        # Prefer a playing queue; fall back to first.
+        playing = [q for q in queues if isinstance(q, dict) and q.get("state") == "playing"]
         chosen = playing[0] if playing else (queues[0] if queues else None)
-        if chosen:
-            self.active_queue_id = chosen.get("queue_id") or chosen.get("id")
+        qid = self._queue_id_of(chosen)
+        if qid:
+            self.active_queue_id = qid
         return self.active_queue_id
 
     async def get_queue(self, queue_id: str | None = None) -> dict[str, Any]:
@@ -446,7 +470,7 @@ class MusicAssistantClient:
 
         queues = await self._command(CMD_QUEUES_ALL) or []
         meta = next(
-            (q for q in queues if (q.get("queue_id") or q.get("id")) == queue_id),
+            (q for q in queues if isinstance(q, dict) and (q.get("queue_id") or q.get("id")) == queue_id),
             {},
         )
         items = await self._command(CMD_QUEUE_ITEMS, queue_id=queue_id) or []
