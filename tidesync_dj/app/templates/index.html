@@ -311,6 +311,7 @@
   <symbol id="i-block" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2c1.85 0 3.55.63 4.9 1.69L5.69 16.9A8 8 0 0112 4zm0 16a7.96 7.96 0 01-4.9-1.69L18.31 7.1A8 8 0 0112 20z"/></symbol>
   <symbol id="i-next-up" viewBox="0 0 24 24"><path d="M14 6H3v2h11V6zM14 10H3v2h11v-2zM3 16h7v-2H3v2zm13-2.5V21l5-3.75L16 13.5z"/></symbol>
   <symbol id="i-add" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></symbol>
+  <symbol id="i-radio" viewBox="0 0 24 24"><path d="M12 8a4 4 0 00-4 4 4 4 0 002 3.46l1-1.76A2 2 0 0110 12a2 2 0 014 0 2 2 0 01-1 1.7l1 1.76A4 4 0 0016 12a4 4 0 00-4-4zm-5.66.34L4.93 6.93a10 10 0 000 14.14l1.41-1.41a8 8 0 010-11.32zm11.32 0a8 8 0 010 11.32l1.41 1.41a10 10 0 000-14.14l-1.41 1.41zM12 11a1 1 0 100 2 1 1 0 000-2z"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></symbol>
   <symbol id="i-drag" viewBox="0 0 24 24"><path d="M9 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm9-12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/></symbol>
 </svg>
@@ -761,7 +762,7 @@
       return;
     }
     box.innerHTML = tracks.map(t => `
-      <div class="trackrow" data-uri="${esc(t.uri)}">
+      <div class="trackrow" data-uri="${esc(t.uri)}" data-label="${esc(((t.artist ? t.artist + " - " : "") + (t.name || "")).trim())}">
         ${thumbHTML(t.image)}
         ${trackText(t)}
         <div class="rowactions">
@@ -771,6 +772,9 @@
           <button class="rowbtn next" data-act="next" title="Play next">
             <svg class="icon sm"><use href="#i-next-up"/></svg>
           </button>
+          <button class="rowbtn" data-act="radio" title="Start radio from this song">
+            <svg class="icon sm"><use href="#i-radio"/></svg>
+          </button>
         </div>
       </div>`).join("");
   }
@@ -779,6 +783,20 @@
     if (!btn) return;
     const row = btn.closest(".trackrow");
     const uri = row.dataset.uri;
+    if (btn.dataset.act === "radio") {
+      btn.disabled = true;
+      toast("Starting radio…");
+      const r = await postJSON("/start_radio_seed", { uri, label: row.dataset.label });
+      if (r.ok) {
+        toast("Radio started");
+        refreshQueue();
+        if (window.matchMedia("(max-width: 699px)").matches) showTab("queue");
+      } else {
+        toast(r.error || "Couldn't start radio");
+      }
+      btn.disabled = false;
+      return;
+    }
     const next = btn.dataset.act === "next";
     btn.disabled = true;
     const r = await postJSON("/queue/play_next", { uri, option: next ? "next" : "add" });

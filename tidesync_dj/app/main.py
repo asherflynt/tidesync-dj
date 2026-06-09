@@ -100,6 +100,11 @@ class SeedBody(BaseModel):
     playlist: str
 
 
+class SeedRadioBody(BaseModel):
+    uri: str
+    label: str = ""
+
+
 class SavePlaylistBody(BaseModel):
     name: str = ""
 
@@ -203,6 +208,12 @@ async def select_player(request: Request, body: PlayerBody):
 @app.post("/start_radio")
 async def start_radio(request: Request):
     result = await _engine(request).start_radio()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.post("/start_radio_seed")
+async def start_radio_seed(request: Request, body: SeedRadioBody):
+    result = await _engine(request).start_radio_from_seed(body.uri, body.label)
     return JSONResponse(result, status_code=200 if result.get("ok") else 502)
 
 

@@ -245,7 +245,9 @@ class DJEngine:
     # ------------------------------------------------------------------ #
     # Decision cycle
     # ------------------------------------------------------------------ #
-    async def build_context(self, fresh_start: bool = False) -> dict[str, Any]:
+    async def build_context(
+        self, fresh_start: bool = False, seed_label: str | None = None
+    ) -> dict[str, Any]:
         queue = await self._ma.get_queue()
         history = await self._ma.get_history(n=20)
         duration_mins = round((time.monotonic() - self.session_started) / 60)
@@ -268,7 +270,16 @@ class DJEngine:
         }
         if fresh_start:
             ctx["fresh_start"] = True
-            if self.vibe_prompt:
+            if seed_label:
+                ctx["seed_track"] = seed_label
+                ctx["instruction"] = (
+                    f"The listener hand-picked '{seed_label}' as a seed and it is now "
+                    f"playing. Build a radio station around it: pick exactly {QUEUE_TARGET} "
+                    "tracks that flow from this seed — matching its genre, energy and era — "
+                    "while honouring the taste profile and never queuing anything in "
+                    "'blocked_tracks'. Do NOT repeat the seed track."
+                )
+            elif self.vibe_prompt:
                 ctx["instruction"] = (
                     f"Starting a brand new radio session for {person.name} — select exactly "
                     f"{QUEUE_TARGET} tracks that set the mood from their taste profile, the "
@@ -284,7 +295,11 @@ class DJEngine:
         return ctx
 
     async def _run_decision(
-        self, reason: str, play_option: str = "add", fresh_start: bool = False
+        self,
+        reason: str,
+        play_option: str = "add",
+        fresh_start: bool = False,
+        seed_label: str | None = None,
     ) -> dict[str, Any]:
         """Shared decision path used by tick() and start_radio()."""
         async with self._tick_lock:
@@ -306,7 +321,7 @@ class DJEngine:
                 except Exception:  # noqa: BLE001
                     pass  # if we can't check, proceed with the decision
 
-            context = await self.build_context(fresh_start=fresh_start)
+            context = await self.build_context(fresh_start=fresh_start, seed_label=seed_label)
             try:
                 decision = await self._brain.decide(context)
             except Exception as err:  # noqa: BLE001
@@ -371,12 +386,21 @@ class DJEngine:
     async def tick(self, reason: str = "manual") -> dict[str, Any]:
         return await self._run_decision(reason=reason, play_option="add")
 
-    async def _rebuild(self, reason: str) -> dict[str, Any]:
+    async def _rebuild(
+        self,
+        reason: str,
+        seed_uri: str | None = None,
+        seed_label: str | None = None,
+    ) -> dict[str, Any]:
         """Clear the queue and start a brand-new set, cutting to it immediately.
 
         Shared by Start Radio, Nudge DJ, a vibe change, and a person switch — all
         of which should make the change audible right away rather than waiting
         for the existing queue to drain.
+
+        When `seed_uri` is given the listener hand-picked the opening track: it
+        plays immediately and Claude appends a station around it, rather than
+        Claude choosing the opener itself.
         """
         # If MA just dropped and is reconnecting, wait up to 15s rather than
         # immediately failing with a misleading "tracks not found" error.
@@ -403,6 +427,14 @@ class DJEngine:
         # continuation of whatever was playing before the clear.
         self._current_track_id = None
         self._last_current = None
+        if seed_uri:
+            # Play the hand-picked seed now; Claude appends the station after it.
+            if not await self._ma.enqueue_uri(seed_uri, option="play"):
+                return {"ok": False, "error": "Couldn't start the seed track."}
+            await self._ma.ensure_playing()
+            return await self._run_decision(
+                reason=reason, play_option="add", fresh_start=True, seed_label=seed_label
+            )
         return await self._run_decision(
             reason=reason, play_option="play", fresh_start=True
         )
@@ -410,6 +442,12 @@ class DJEngine:
     async def start_radio(self) -> dict[str, Any]:
         """Pick a player if needed, then start playback with a fresh set."""
         return await self._rebuild("start_radio")
+
+    async def start_radio_from_seed(self, uri: str, label: str = "") -> dict[str, Any]:
+        """Clear the queue, play the hand-picked seed now, and let Claude build a station around it."""
+        if not uri:
+            return {"ok": False, "error": "No seed track provided."}
+        return await self._rebuild("seed_radio", seed_uri=uri, seed_label=label.strip() or None)
 
     async def nudge(self) -> dict[str, Any]:
         """Tear down the current queue and rebuild a fresh set with the live vibe."""
