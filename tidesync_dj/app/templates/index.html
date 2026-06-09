@@ -255,28 +255,24 @@
       grid-template-rows: 1fr; min-height: 0;
     }
     .panel { display: flex !important; padding: 0; height: auto; min-height: 0; }
+    /* col 1 = Now Playing + Search; col 2 = Up Next + Settings.
+       Each column is its own scroll. */
+    #g-left, #g-right { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+    #g-left > .panel, #g-right > .panel { margin-bottom: var(--gap); }
+    #g-left > .panel:last-child, #g-right > .panel:last-child { margin-bottom: 0; }
     .panel#p-np {
       background: var(--surface); border: 1px solid var(--outline);
       border-radius: var(--r-lg); padding: 22px; box-shadow: var(--e2);
-      justify-content: flex-start; overflow-y: auto;
+      justify-content: flex-start; flex: 0 0 auto;
     }
-    /* col 2 = one scroll containing queue + search + settings */
-    #g-main { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
-    #g-main > .panel { margin-bottom: var(--gap); }
-    #g-main > .panel:last-child { margin-bottom: 0; }
     .toast { bottom: 28px; }
   }
 
-  /* ════ Large: 3 columns ════ */
+  /* ════ Large: 3 columns ════ (Now Playing+Search | Up Next | Settings) */
   @media (min-width: 1100px) {
-    .panels { grid-template-columns: minmax(320px, 420px) minmax(300px, 460px) 1fr; }
-    #g-main { display: contents; }            /* dissolve: queue + g-side become columns */
-    #g-side { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
-    #g-side > .panel { margin-bottom: var(--gap); }
-    #g-side > .panel:last-child { margin-bottom: 0; }
-    .panel#p-queue, #g-side {
-      background: transparent;
-    }
+    .panels { grid-template-columns: minmax(340px, 440px) minmax(300px, 480px) 1fr; }
+    #g-right { display: contents; }           /* dissolve: queue + settings become columns */
+    .panel#p-queue, .panel#p-settings { overflow-y: auto; }
   }
 </style>
 </head>
@@ -300,6 +296,9 @@
 
 <div class="app">
   <div class="panels">
+
+    <!-- col 1: Now Playing + Search -->
+    <div class="group" id="g-left">
 
     <!-- ════ NOW PLAYING ════ -->
     <section class="panel active" id="p-np" data-panel="np">
@@ -337,8 +336,22 @@
       </div>
     </section>
 
-    <!-- col 2 wrapper (mobile: invisible; tablet: scroll; desktop: dissolves) -->
-    <div class="group" id="g-main">
+      <!-- ════ SEARCH ════ -->
+      <section class="panel" id="p-search" data-panel="search">
+        <div class="panel-title">Search</div>
+        <div class="search-bar">
+          <svg class="icon"><use href="#i-search"/></svg>
+          <input type="text" id="searchInput" placeholder="Search a song to play next…" autocomplete="off" />
+        </div>
+        <div class="card">
+          <div class="tracklist" id="searchResults"><div class="empty" id="searchEmpty">Search to add a song as “next up”.</div></div>
+        </div>
+      </section>
+
+    </div><!-- /g-left -->
+
+    <!-- col 2: Up Next + Settings -->
+    <div class="group" id="g-right">
 
       <!-- ════ UP NEXT ════ -->
       <section class="panel" id="p-queue" data-panel="queue">
@@ -347,21 +360,6 @@
           <div class="tracklist" id="queueList"><div class="empty">Nothing queued yet.</div></div>
         </div>
       </section>
-
-      <!-- col 3 wrapper (desktop: search + settings scroll column) -->
-      <div class="group" id="g-side">
-
-        <!-- ════ SEARCH ════ -->
-        <section class="panel" id="p-search" data-panel="search">
-          <div class="panel-title">Search</div>
-          <div class="search-bar">
-            <svg class="icon"><use href="#i-search"/></svg>
-            <input type="text" id="searchInput" placeholder="Search a song to play next…" autocomplete="off" />
-          </div>
-          <div class="card">
-            <div class="tracklist" id="searchResults"><div class="empty" id="searchEmpty">Search to add a song as “next up”.</div></div>
-          </div>
-        </section>
 
         <!-- ════ SETTINGS ════ -->
         <section class="panel" id="p-settings" data-panel="settings">
@@ -448,8 +446,7 @@
           </div>
         </section>
 
-      </div><!-- /g-side -->
-    </div><!-- /g-main -->
+    </div><!-- /g-right -->
   </div><!-- /panels -->
 
   <!-- ════ BOTTOM NAV (mobile) ════ -->

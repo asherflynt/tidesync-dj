@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1
+
+- On tablet/desktop, **Search now lives in the left column** beneath the player
+  (using the previously empty space); the right side holds Up Next + Settings.
+  Mobile keeps Search as its own tab.
+
 ## 0.7.0
 
 ### Responsive Material UI
