@@ -574,9 +574,16 @@
       document.getElementById("blockBtn").disabled = !s.can_block;
       renderPeople(s.people || []);
 
-      const isPaused = s.player_state === "paused";
-      document.getElementById("pauseIcon").setAttribute("href", isPaused ? "#i-play" : "#i-pause");
-      document.getElementById("pauseBtn").title = isPaused ? "Resume" : "Pause";
+      const isPaused = (s.player_state || "").toLowerCase() === "paused";
+      const pauseBtn = document.getElementById("pauseBtn");
+      const wantIcon = isPaused ? "i-play" : "i-pause";
+      // Recreate the <use> node rather than just flipping its href — Chrome
+      // caches the rendered SVG shadow tree and won't repaint an in-place href.
+      if (pauseBtn.dataset.icon !== wantIcon) {
+        pauseBtn.querySelector("svg").innerHTML = `<use href="#${wantIcon}"/>`;
+        pauseBtn.dataset.icon = wantIcon;
+      }
+      pauseBtn.title = isPaused ? "Resume" : "Pause";
     } catch (e) {
       setConn(false);
     }

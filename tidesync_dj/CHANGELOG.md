@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.2
+
+- Fix: the pause button now correctly turns into a **play** button when
+  playback is paused (and back again on resume).
+
 ## 0.7.1
 
 - On tablet/desktop, **Search now lives in the left column** beneath the player
