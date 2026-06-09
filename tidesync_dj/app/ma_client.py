@@ -532,7 +532,10 @@ class MusicAssistantClient:
             return False
 
     async def enqueue_queries(
-        self, queries: list[str], option: str = "add"
+        self,
+        queries: list[str],
+        option: str = "add",
+        blocked_uris: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Resolve queries to tracks and queue them on the active queue.
 
@@ -541,6 +544,9 @@ class MusicAssistantClient:
           * "play"    — start playing this now (used by Start Radio); the first
                         track plays immediately, the rest are appended.
 
+        `blocked_uris` are dropped after resolution so a temporarily-blocked
+        track can never make it back into the queue.
+
         Returns the list of tracks that were successfully queued.
         """
         queue_id = self.active_queue_id or await self.refresh_active_queue()
@@ -548,6 +554,7 @@ class MusicAssistantClient:
             _LOGGER.warning("No active queue to enqueue into")
             return []
 
+        blocked_uris = blocked_uris or set()
         enqueued: list[dict[str, Any]] = []
         first = True
         for query in queries:
@@ -556,6 +563,9 @@ class MusicAssistantClient:
                 continue
             uri = track.get("uri")
             if not uri:
+                continue
+            if uri in blocked_uris:
+                _LOGGER.debug("Skipping blocked track %s", uri)
                 continue
             # Only the first track of a "play" batch interrupts; the rest append.
             this_option = option if (first and option == "play") else "add"

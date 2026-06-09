@@ -4,9 +4,10 @@ Drives decision cycles from two triggers:
   * Primary: a Music Assistant `queue_updated` event when items_remaining < 2.
   * Secondary: a polling fallback every `dj_tick_interval` seconds.
 
-Also performs skip detection (a track change within `skip_penalty_seconds` of
-the track starting is treated as a skip) and assembles the structured context
-payload handed to Claude.
+Tracks the currently-playing song for stats and the like/block path, and
+assembles the structured context payload handed to Claude. Skips are recorded
+only when the user presses the TideSync skip button — there is no time-based
+skip detection (it produced false skips on queue clears / rebuilds).
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from config import Config
 from ha_client import HAClient
 from ma_client import MusicAssistantClient, EVENT_QUEUE_UPDATED, EVENT_QUEUE_TIME_UPDATED
 from taste_profile import TasteProfile
+from user_memory import UserStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,15 +72,19 @@ class DJEngine:
         ha: HAClient,
         brain: ClaudeBrain,
         taste: TasteProfile,
+        users: UserStore,
     ) -> None:
         self._config = config
         self._ma = ma
         self._ha = ha
         self._brain = brain
         self._taste = taste
+        self._users = users
 
         self.vibe_prompt: str = ""
         self.decision_log: deque[dict[str, Any]] = deque(maxlen=50)
+        # Soft, session-only skip signal. Populated ONLY by the UI skip button —
+        # never by automatic track-change detection — and never persisted.
         self.recent_skips: list[dict[str, Any]] = []
         self.session_started = time.monotonic()
         self.stats = {"tracks_played": 0, "skips": 0, "discoveries": 0}
@@ -127,11 +133,10 @@ class DJEngine:
     async def _on_ma_reconnect(self) -> None:
         """Called each time the MA WebSocket reconnects.
 
-        Clears the tracked current-track state so the first queue_updated event
-        after reconnect is not misread as a skip (the elapsed time since
-        _current_track_started would be near-zero, well below skip_penalty_seconds).
+        Clears the tracked current-track state so the next event re-establishes
+        the baseline cleanly.
         """
-        _LOGGER.info("MA reconnected — resetting skip-detection state")
+        _LOGGER.info("MA reconnected — resetting track-tracking state")
         self._current_track_id = None
         self._current_track_started = time.monotonic()
 
@@ -142,14 +147,14 @@ class DJEngine:
         _LOGGER.debug("MA event received: %s", event)
 
         if event == "media_item_played":
-            # MA fires this when a new track starts — most reliable skip signal.
-            self._detect_skip({"current_item": data})
+            # MA fires this when a new track starts — use it for track bookkeeping.
+            self._note_track_change({"current_item": data})
             return
 
         if event != EVENT_QUEUE_UPDATED:
             return
 
-        self._detect_skip(data)
+        self._note_track_change(data)
 
         # Compute items_remaining directly from the event payload.
         # The queue_updated event has 'items' (total count) and 'current_index'.
@@ -186,7 +191,7 @@ class DJEngine:
             await asyncio.sleep(interval)
             try:
                 queue = await self._ma.get_queue()
-                self._detect_skip(queue)
+                self._note_track_change(queue)
                 if queue.get("items_remaining", 0) < ENQUEUE_THRESHOLD:
                     await self.tick(reason="poll")
             except Exception as err:  # noqa: BLE001
@@ -199,56 +204,35 @@ class DJEngine:
             value = await self._ha.get_state_value(entity)  # type: ignore[arg-type]
             if value and value != self.vibe_prompt:
                 _LOGGER.info("Vibe updated from %s: %s", entity, value)
-                self.vibe_prompt = value
-                asyncio.create_task(self.tick(reason="vibe_change"))
+                # Same behavior as the Set Vibe button: rebuild the queue now.
+                asyncio.create_task(self.set_vibe(value))
             await asyncio.sleep(15)
 
     # ------------------------------------------------------------------ #
-    # Skip detection
+    # Track-change bookkeeping
     # ------------------------------------------------------------------ #
-    def _detect_skip(self, queue_or_event: dict[str, Any]) -> None:
-        _LOGGER.debug(
-            "detect_skip input keys=%s current_item=%r",
-            list(queue_or_event.keys()),
-            queue_or_event.get("current_item"),
-        )
+    def _note_track_change(self, queue_or_event: dict[str, Any]) -> None:
+        """Track which song is current — for stats, art, and the like/block path.
+
+        Deliberately does NOT record skips. Time-based "did the track change
+        quickly?" detection is gone: clearing the queue or a vibe rebuild would
+        register false skips, and skips no longer carry any persistent penalty.
+        A skip is only ever recorded when the user presses the TideSync skip
+        button (see :meth:`skip`).
+        """
         current = queue_or_event.get("current_item")
-        track_id = None
-        if current:
-            track_id = current.get("queue_item_id") or current.get("uri")
-        _LOGGER.debug("detect_skip track_id=%r known=%r", track_id, self._current_track_id)
-        # No current item usually means a reconnect gap — don't misread it as a skip.
-        if track_id is None:
-            return
-        if track_id == self._current_track_id:
+        track_id = current.get("queue_item_id") or current.get("uri") if current else None
+        # No current item usually means a reconnect gap — ignore it.
+        if track_id is None or track_id == self._current_track_id:
             return
 
-        # Track changed — was the previous one skipped?
-        elapsed = time.monotonic() - self._current_track_started
-        skipped = (
-            self._current_track_id is not None
-            and elapsed < self._config.skip_penalty_seconds
-        )
-        if skipped:
-            label = _track_label(self._last_current)
-            self.stats["skips"] += 1
-            skip = {"track": label, "elapsed_seconds": round(elapsed, 1)}
-            self.recent_skips.append(skip)
-            self.recent_skips = self.recent_skips[-10:]
-            artist = label.split(" - ")[0] if label else None
-            self._taste.note_skip(artist)
-            _LOGGER.info("Detected skip: %s after %.1fs", label, elapsed)
-        elif self._current_track_id is not None:
+        # A genuine advance to a new track.
+        if self._current_track_id is not None:
             self.stats["tracks_played"] += 1
-
         self._current_track_id = track_id
         self._current_track_started = time.monotonic()
         self._last_current = current
         self._remember_uri(_track_uri(current))
-
-        # A skip triggers an immediate Claude re-evaluation to adjust the set direction.
-        if skipped:
-            asyncio.create_task(self.tick(reason="skip"))
 
     def _remember_uri(self, uri: str | None) -> None:
         if uri:
@@ -265,24 +249,38 @@ class DJEngine:
         queue = await self._ma.get_queue()
         history = await self._ma.get_history(n=20)
         duration_mins = round((time.monotonic() - self.session_started) / 60)
+        person = self._users.active
+        tod = _time_of_day()
         ctx = {
             "taste_profile": self._taste.summary,
+            "listener": person.name,
             "recent_history": [_track_label(i) for i in history],
             "current_track": _track_label(queue.get("current_item")),
             "queue": [_track_label(i) for i in queue.get("items", [])],
             "recent_skips": self.recent_skips,
-            "avoid_artists": self._taste.avoid_artists,
+            "recent_likes": person.recent_likes(),
+            "blocked_tracks": person.blocked_labels(),
+            "moods_this_time_of_day": person.moods_for(tod),
             "vibe_prompt": self.vibe_prompt or None,
-            "time_of_day": _time_of_day(),
+            "time_of_day": tod,
             "listening_duration_mins": duration_mins,
             "tracks_to_add": QUEUE_TARGET,
         }
         if fresh_start:
             ctx["fresh_start"] = True
-            ctx["instruction"] = (
-                f"Starting a brand new radio session — select exactly {QUEUE_TARGET} tracks "
-                "that set the mood from the taste profile, vibe, and time of day."
-            )
+            if self.vibe_prompt:
+                ctx["instruction"] = (
+                    f"Starting a brand new radio session for {person.name} — select exactly "
+                    f"{QUEUE_TARGET} tracks that set the mood from their taste profile, the "
+                    "current vibe, and the time of day."
+                )
+            else:
+                ctx["instruction"] = (
+                    f"Starting a brand new radio session for {person.name} with NO explicit "
+                    f"vibe. Infer the mood from 'moods_this_time_of_day' (what they usually "
+                    f"ask for at this time) and 'recent_likes', then select exactly "
+                    f"{QUEUE_TARGET} tracks. Never queue anything in 'blocked_tracks'."
+                )
         return ctx
 
     async def _run_decision(
@@ -316,9 +314,12 @@ class DJEngine:
                 return {"ok": False, "error": str(err)}
 
             queries = [t.query for t in decision.next_tracks]
+            blocked = self._users.active.blocked_uris()
             self._enqueuing = True
             try:
-                enqueued = await self._ma.enqueue_queries(queries, option=play_option)
+                enqueued = await self._ma.enqueue_queries(
+                    queries, option=play_option, blocked_uris=blocked
+                )
             finally:
                 self._enqueuing = False
             if play_option == "play":
@@ -370,12 +371,17 @@ class DJEngine:
     async def tick(self, reason: str = "manual") -> dict[str, Any]:
         return await self._run_decision(reason=reason, play_option="add")
 
-    async def start_radio(self) -> dict[str, Any]:
-        """Pick a player if needed, then start playback with a fresh set."""
+    async def _rebuild(self, reason: str) -> dict[str, Any]:
+        """Clear the queue and start a brand-new set, cutting to it immediately.
+
+        Shared by Start Radio, Nudge DJ, a vibe change, and a person switch — all
+        of which should make the change audible right away rather than waiting
+        for the existing queue to drain.
+        """
         # If MA just dropped and is reconnecting, wait up to 15s rather than
         # immediately failing with a misleading "tracks not found" error.
         if not self._ma.is_connected:
-            _LOGGER.info("start_radio: MA not connected, waiting up to 15s for reconnect")
+            _LOGGER.info("%s: MA not connected, waiting up to 15s for reconnect", reason)
             for _ in range(15):
                 await asyncio.sleep(1)
                 if self._ma.is_connected:
@@ -391,11 +397,54 @@ class DJEngine:
                 "ok": False,
                 "error": "No Music Assistant player available to start radio on.",
             }
-        _LOGGER.info("Starting radio on player %s — clearing queue", player)
+        _LOGGER.info("Rebuilding queue (%s) on player %s — clearing queue", reason, player)
         await self._ma.clear_queue()
+        # Re-baseline track tracking so the fresh first track isn't treated as a
+        # continuation of whatever was playing before the clear.
+        self._current_track_id = None
+        self._last_current = None
         return await self._run_decision(
-            reason="start_radio", play_option="play", fresh_start=True
+            reason=reason, play_option="play", fresh_start=True
         )
+
+    async def start_radio(self) -> dict[str, Any]:
+        """Pick a player if needed, then start playback with a fresh set."""
+        return await self._rebuild("start_radio")
+
+    async def nudge(self) -> dict[str, Any]:
+        """Tear down the current queue and rebuild a fresh set with the live vibe."""
+        return await self._rebuild("nudge")
+
+    async def set_vibe(self, prompt: str) -> dict[str, Any]:
+        """Set the active vibe, remember it for this person + time of day, rebuild."""
+        self.vibe_prompt = prompt.strip()
+        _LOGGER.info("Vibe set to: %s", self.vibe_prompt)
+        if self.vibe_prompt:
+            person = self._users.active
+            person.record_mood(_time_of_day(), self.vibe_prompt)
+            self._users.save(person)
+        return await self._rebuild("vibe_change")
+
+    # ------------------------------------------------------------------ #
+    # People
+    # ------------------------------------------------------------------ #
+    def list_users(self) -> list[dict[str, Any]]:
+        return self._users.people()
+
+    async def select_user(self, slug: str) -> dict[str, Any]:
+        if not self._users.select(slug):
+            return {"ok": False, "error": f"Unknown person: {slug}"}
+        _LOGGER.info("Switched active person to %s", slug)
+        # Rebuild immediately so playback reflects the new person's preferences.
+        result = await self._rebuild("person_switch")
+        result["active"] = self._users.active_slug
+        return result
+
+    def add_user(self, name: str) -> dict[str, Any]:
+        if not name.strip():
+            return {"ok": False, "error": "Name is required."}
+        person = self._users.add_person(name)
+        return {"ok": True, "slug": person.slug, "name": person.name}
 
     # ------------------------------------------------------------------ #
     # Players
@@ -414,7 +463,18 @@ class DJEngine:
         return {"ok": ok}
 
     async def skip(self) -> dict[str, Any]:
-        """Skip the current track and immediately re-evaluate the set."""
+        """Skip the current track (the ONLY thing that records a skip).
+
+        Recorded as a soft, session-only signal so Claude steers away from this
+        track/artist for the rest of the session. It is not persisted and never
+        blocks the track from future sessions — use Block for that.
+        """
+        label = _track_label(self._last_current)
+        if label:
+            self.stats["skips"] += 1
+            self.recent_skips.append({"track": label})
+            self.recent_skips = self.recent_skips[-10:]
+            _LOGGER.info("UI skip recorded: %s", label)
         ok = await self._ma.skip()
         return {"ok": ok}
 
@@ -475,23 +535,47 @@ class DJEngine:
     # ------------------------------------------------------------------ #
     # Tidal: like a track / save the session as a playlist
     # ------------------------------------------------------------------ #
-    async def like_current(self) -> dict[str, Any]:
-        """Favorite the currently playing track (syncs to Tidal via MA)."""
+    async def _resolve_current(self) -> tuple[str | None, str | None]:
+        """Return (uri, label) for the currently-playing track, querying MA if needed."""
         uri = self.current_uri
+        label = _track_label(self._last_current)
         if not uri:
-            # Fall back to the live queue if we haven't cached a current item.
             try:
                 queue = await self._ma.get_queue()
-                uri = _track_uri(queue.get("current_item"))
+                current = queue.get("current_item")
+                uri = _track_uri(current)
+                label = label or _track_label(current)
             except Exception:  # noqa: BLE001
-                uri = None
+                pass
+        return uri, label
+
+    async def like_current(self) -> dict[str, Any]:
+        """Favorite the currently playing track (syncs to Tidal via MA) and log it
+        to the active person's memory."""
+        uri, label = await self._resolve_current()
         if not uri:
             return {"ok": False, "error": "Nothing is playing to like."}
         try:
             await self._ma.add_favorite(uri)
         except Exception as err:  # noqa: BLE001
             return {"ok": False, "error": f"Music Assistant rejected the like: {err}"}
-        return {"ok": True, "liked": _track_label(self._last_current) or uri}
+        person = self._users.active
+        person.add_like(label, uri)
+        self._users.save(person)
+        return {"ok": True, "liked": label or uri, "person": person.name}
+
+    async def block_current(self) -> dict[str, Any]:
+        """Block the current track for 30 days for the active person and skip it now."""
+        uri, label = await self._resolve_current()
+        if not uri:
+            return {"ok": False, "error": "Nothing is playing to block."}
+        person = self._users.active
+        person.add_block(label, uri)
+        self._users.save(person)
+        _LOGGER.info("Blocked %s for %s (30 days)", label or uri, person.name)
+        # Stop the song immediately — that's why you blocked it.
+        await self._ma.skip()
+        return {"ok": True, "blocked": label or uri, "person": person.name}
 
     async def save_session_playlist(self, name: str) -> dict[str, Any]:
         """Create a Tidal playlist from the tracks heard this session."""
@@ -537,6 +621,7 @@ class DJEngine:
             img = current_item.get("image") or {}
             album_art = img.get("path") or None
 
+        can_act = bool(_track_uri(current_item) or self.current_uri)
         return {
             "configured": bool(self._config.anthropic_api_key),
             "now_playing": _track_label(current_item),
@@ -551,9 +636,10 @@ class DJEngine:
             "selected_player_id": self._ma.selected_player_id,
             "taste_seeded": self._taste.is_bootstrapped,
             "session_track_count": len(self._session_uris),
-            "can_like": bool(
-                _track_uri(queue.get("current_item")) or self.current_uri
-            ),
+            "can_like": can_act,
+            "can_block": can_act,
+            "people": self._users.people(),
+            "active_person": self._users.active.name,
             "session_minutes": round((time.monotonic() - self.session_started) / 60),
             "stats": self.stats,
             "model": self._config.claude_model,

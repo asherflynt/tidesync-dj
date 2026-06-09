@@ -85,8 +85,33 @@
   }
   .ctrl-btn:hover:not(:disabled) { background: #252d3a; }
   .ctrl-btn:disabled { opacity: 0.45; cursor: default; }
-  .ctrl-btn.like-btn { font-size: 18px; padding: 14px 22px; }
+  .ctrl-btn.like-btn, .ctrl-btn.block-btn { font-size: 18px; padding: 14px 22px; }
+  .ctrl-btn.like-btn:not(:disabled):hover { border-color: var(--accent2); color: var(--accent2); }
+  .ctrl-btn.block-btn:not(:disabled):hover { border-color: var(--danger); color: var(--danger); }
   .like-msg { color: var(--muted); font-size: 13px; }
+
+  /* People toggle */
+  .people {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 16px; flex: 0 0 auto;
+  }
+  .people-label { color: var(--muted); font-size: 13px; }
+  #peopleBtns { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+  .person {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 999px; padding: 7px 16px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all .15s; line-height: 1;
+  }
+  .person:hover { background: #252d3a; }
+  .person.active {
+    background: var(--accent); color: #04212f; border-color: var(--accent);
+  }
+  .person-add {
+    background: var(--panel2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 7px 12px; font-size: 14px; line-height: 1;
+    cursor: pointer;
+  }
+  .person-add:hover { color: var(--text); background: #252d3a; }
 
   /* Vibe pill on left */
   .vibe-pill {
@@ -185,7 +210,14 @@
       <button class="ctrl-btn" id="pauseBtn" title="Pause / Resume">⏸</button>
       <button class="ctrl-btn" id="skipBtn" title="Skip track">⏭</button>
       <button class="ctrl-btn like-btn" id="likeBtn" disabled title="Like track">♥ Like</button>
+      <button class="ctrl-btn block-btn" id="blockBtn" disabled title="Block this song for 30 days">🚫 Block</button>
       <span class="like-msg" id="likeMsg"></span>
+    </div>
+
+    <div class="people" id="people">
+      <span class="people-label">Listening:</span>
+      <span id="peopleBtns"></span>
+      <button class="person-add" id="addPerson" title="Add a person">＋</button>
     </div>
 
     <span class="vibe-pill" id="vibePill">no vibe set</span>
@@ -289,12 +321,21 @@
     return r.json();
   }
   async function postJSON(path, body) {
-    const r = await fetch(api(path), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : "{}",
-    });
-    return r.json();
+    try {
+      const r = await fetch(api(path), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : "{}",
+      });
+      const text = await r.text();
+      let data;
+      try { data = text ? JSON.parse(text) : {}; }
+      catch { return { ok: false, error: text || ("HTTP " + r.status) }; }
+      if (!r.ok && data.ok === undefined) data.ok = false;
+      return data;
+    } catch (e) {
+      return { ok: false, error: String(e && e.message || e) };
+    }
   }
   function esc(s) {
     return (s == null ? "" : String(s)).replace(/[&<>]/g, c =>
@@ -349,6 +390,8 @@
       document.getElementById("sDisc").textContent = s.stats.discoveries;
       document.getElementById("sessionCount").textContent = s.session_track_count || 0;
       document.getElementById("likeBtn").disabled = !s.can_like;
+      document.getElementById("blockBtn").disabled = !s.can_block;
+      renderPeople(s.people || []);
 
       const isPaused = s.player_state === "paused";
       const pauseBtn = document.getElementById("pauseBtn");
@@ -396,20 +439,57 @@
     }
   });
 
-  document.getElementById("setVibe").addEventListener("click", async () => {
+  document.getElementById("setVibe").addEventListener("click", async (e) => {
     const v = document.getElementById("vibeInput").value.trim();
     if (!v) return;
-    await postJSON("/vibe", { prompt: v });
-    document.getElementById("vibeInput").value = "";
-    refreshStatus();
+    e.target.disabled = true; e.target.textContent = "Rebuilding…";
+    try {
+      await postJSON("/vibe", { prompt: v });
+      document.getElementById("vibeInput").value = "";
+    } finally {
+      e.target.disabled = false; e.target.textContent = "Set Vibe";
+      refreshStatus(); refreshLog();
+    }
   });
 
   document.getElementById("nudge").addEventListener("click", async (e) => {
-    e.target.disabled = true; e.target.textContent = "Thinking…";
-    try { await postJSON("/tick"); } finally {
+    e.target.disabled = true; e.target.textContent = "Rebuilding…";
+    try { await postJSON("/nudge"); } finally {
       e.target.disabled = false; e.target.textContent = "Nudge DJ";
       refreshStatus(); refreshLog();
     }
+  });
+
+  // ── People (no auth — just whose preferences are active) ──
+  function renderPeople(people) {
+    const wrap = document.getElementById("peopleBtns");
+    wrap.innerHTML = people.map(p =>
+      `<button class="person${p.active ? " active" : ""}" data-slug="${esc(p.slug)}">${esc(p.name)}</button>`
+    ).join("");
+  }
+
+  document.getElementById("peopleBtns").addEventListener("click", async (e) => {
+    const btn = e.target.closest(".person");
+    if (!btn || btn.classList.contains("active")) return;
+    btn.disabled = true;
+    try { await postJSON("/users/select", { slug: btn.dataset.slug }); }
+    finally { refreshStatus(); refreshLog(); }
+  });
+
+  document.getElementById("addPerson").addEventListener("click", async () => {
+    const name = (prompt("Add a person (name):") || "").trim();
+    if (!name) return;
+    await postJSON("/users/add", { name });
+    refreshStatus();
+  });
+
+  document.getElementById("blockBtn").addEventListener("click", async (e) => {
+    const msg = document.getElementById("likeMsg");
+    e.target.disabled = true;
+    try {
+      const r = await postJSON("/block");
+      msg.textContent = r.ok ? `🚫 Blocked ${r.blocked || "track"} for 30 days` : (r.error || "Block failed");
+    } finally { e.target.disabled = false; refreshStatus(); }
   });
 
   async function refreshPlayers() {

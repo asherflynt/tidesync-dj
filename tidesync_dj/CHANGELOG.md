@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.6.0
+
+### Per-person memory (Markdown)
+- Each person gets a human-readable memory file at `/data/users/<name>.md`
+  recording their **likes**, **30-day blocks**, learned **moods by time of
+  day**, and a personal taste summary.
+- Fresh installs are seeded with three people: **Mom**, **Dad**, **Kids**.
+  Add more from the UI (＋). No accounts/auth — just whose preferences are live.
+- Likes now log to the active person's memory in addition to favoriting in
+  Tidal via MA.
+
+### Listener toggle
+- Name buttons in the left panel switch whose preferences drive the DJ.
+  Switching a person **rebuilds the queue immediately** for them.
+
+### Start Radio with no vibe
+- If no vibe is set, the opening set is inferred from that person's
+  mood-for-this-time-of-day history plus their recent likes.
+
+### Block button (new)
+- 🚫 **Block** removes the current song for **30 days** for the active person,
+  **stops it immediately**, and prevents it from being re-queued. Auto-expires
+  after 30 days — nothing is ever permanently blocked.
+
+### Skip behavior — no more false skips
+- Removed time-based skip detection entirely (clearing the queue / vibe
+  rebuilds were being mis-counted as skips, permanently blacklisting artists).
+- A skip is now recorded **only** when you press the TideSync ⏭ button, and it
+  is a soft, session-only signal — never persisted, never blocks a track.
+
+### Vibe change & Nudge DJ now actually do something
+- **Set Vibe** clears the queue and rebuilds a fresh set, cutting to it now
+  (previously it only changed appended tracks, so it appeared to "revert").
+- **Nudge DJ** clears the queue and rebuilds with the live vibe (previously a
+  no-op when the queue was already full).
+
+### Likes fix
+- The dashboard swallowed server errors (`postJSON` blindly parsed JSON), so a
+  failed like only ever showed "Like failed." All POSTs now surface the real
+  error, and a catch-all handler guarantees JSON responses instead of a
+  plain-text 500.
+
 ## 0.5.0
 
 ### Queue depth & Claude call reduction

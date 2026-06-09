@@ -20,6 +20,7 @@ from ha_client import HAClient
 from ma_client import MusicAssistantClient
 from scheduler import DJEngine
 from taste_profile import TasteProfile
+from user_memory import UserStore
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 # websockets internal debug is extremely noisy — suppress it.
@@ -44,7 +45,8 @@ async def lifespan(app: FastAPI):
     ha = HAClient()
     brain = ClaudeBrain(config.anthropic_api_key, config.claude_model)
     taste = TasteProfile(config.data_dir)
-    engine = DJEngine(config, ma, ha, brain, taste)
+    users = UserStore(config.data_dir)
+    engine = DJEngine(config, ma, ha, brain, taste, users)
 
     app.state.engine = engine
     app.state.ma = ma
@@ -62,12 +64,31 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="TideSync DJ", lifespan=lifespan)
 
 
+@app.exception_handler(Exception)
+async def _json_errors(request: Request, exc: Exception):
+    """Always return JSON, never Starlette's plain-text 500.
+
+    The UI parses every response as JSON; a plain-text 500 would surface to the
+    user as a useless generic failure (this is what hid the real "like" error).
+    """
+    _LOGGER.exception("Unhandled error on %s", request.url.path)
+    return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
 class VibeBody(BaseModel):
     prompt: str
 
 
 class PlayerBody(BaseModel):
     player_id: str
+
+
+class UserSelectBody(BaseModel):
+    slug: str
+
+
+class UserAddBody(BaseModel):
+    name: str
 
 
 class SeedBody(BaseModel):
@@ -94,10 +115,8 @@ async def status(request: Request):
 
 @app.post("/vibe")
 async def set_vibe(request: Request, body: VibeBody):
-    engine = _engine(request)
-    engine.vibe_prompt = body.prompt.strip()
-    _LOGGER.info("Vibe set to: %s", engine.vibe_prompt)
-    return {"ok": True, "vibe": engine.vibe_prompt}
+    result = await _engine(request).set_vibe(body.prompt)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
 
 
 @app.get("/queue")
@@ -164,6 +183,35 @@ async def skip(request: Request):
 async def like(request: Request):
     result = await _engine(request).like_current()
     return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.post("/block")
+async def block(request: Request):
+    result = await _engine(request).block_current()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.post("/nudge")
+async def nudge(request: Request):
+    result = await _engine(request).nudge()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.get("/users")
+async def users(request: Request):
+    return {"people": _engine(request).list_users()}
+
+
+@app.post("/users/select")
+async def select_user(request: Request, body: UserSelectBody):
+    result = await _engine(request).select_user(body.slug)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
+
+
+@app.post("/users/add")
+async def add_user(request: Request, body: UserAddBody):
+    result = _engine(request).add_user(body.name)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
 
 @app.post("/save_playlist")
