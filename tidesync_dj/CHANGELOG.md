@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0
+
+### Responsive Material UI
+- The dashboard now resizes to the screen: a bottom tab bar on phones
+  (Now Playing / Up Next / Search / Settings), a 2-column tablet layout, and a
+  3-column desktop layout. Self-contained — no external fonts or icons.
+- Album art is shown in full (square frame, no cropping).
+- The people / **Listening** switcher moved into Settings.
+
+### Up Next queue panel
+- See what's coming up, **remove** a track, or **drag to reorder** the queue.
+
+### Search & "play next"
+- Search for a song and add it as **next up** — it plays right after the
+  current track without interrupting it or the rest of the queue (or append it
+  to the end of the queue).
+
 ## 0.6.0
 
 ### Per-person memory (Markdown)
