@@ -732,6 +732,29 @@ class MusicAssistantClient:
             _LOGGER.warning("Pause failed: %s", err)
             return False
 
+    async def get_play_state(self) -> str | None:
+        """Return the active player's playback state ("playing"|"paused"|"idle").
+
+        The player object carries the authoritative playback state; the queue
+        meta `state` doesn't always reflect a pause, so prefer the player and
+        fall back to the queue.
+        """
+        target = self.selected_player_id or self.active_queue_id
+        if target:
+            try:
+                for player in await self.get_players():
+                    if player.get("player_id") == target:
+                        state = player.get("state")
+                        if state:
+                            return str(state).lower()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("get_play_state via players failed: %s", err)
+        try:
+            state = (await self.get_queue()).get("state")
+            return str(state).lower() if state else None
+        except Exception:  # noqa: BLE001
+            return None
+
     async def skip(self) -> bool:
         queue = await self.get_queue()
         player_id = queue.get("queue_id")
@@ -752,10 +775,13 @@ class MusicAssistantClient:
             return []
 
     # ------------------------------------------------------------------ #
-    # Favorites + playlists (Tidal sync via MA)
+    # Favorites + playlists (synced to the track's source provider via MA)
     # ------------------------------------------------------------------ #
     async def add_favorite(self, uri: str) -> bool:
-        """Favorite a track in MA, which syncs to the source provider (Tidal)."""
+        """Favorite a track in MA, which syncs to the track's source provider.
+
+        The URI scheme (e.g. tidal://, spotify://) determines which provider MA
+        routes the favorite to — this works with any configured music source."""
         if not uri:
             return False
         try:
@@ -768,7 +794,7 @@ class MusicAssistantClient:
     async def create_playlist(
         self, name: str, provider: str | None = None
     ) -> dict[str, Any]:
-        """Create a playlist on the given provider (e.g. 'tidal').
+        """Create a playlist on the given music provider (e.g. 'tidal', 'spotify').
 
         Returns the created playlist object (carries item_id / uri).
         """

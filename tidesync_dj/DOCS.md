@@ -1,13 +1,15 @@
 # TideSync DJ — Setup
 
-An AI-powered Tidal DJ that controls your Music Assistant queue using Claude.
+An AI-powered DJ that controls your Music Assistant queue using Claude — works
+with any music source you've added to Music Assistant (Tidal, Spotify, your local
+library, etc.).
 
 ## Before you start
 
 You need:
 
-1. **Music Assistant** installed (as an HA add-on or elsewhere) with **Tidal**
-   added as a provider and at least one player.
+1. **Music Assistant** installed (as an HA add-on or elsewhere) with at least one
+   **music provider** (Tidal, Spotify, local library, etc.) and one player.
 2. A **Music Assistant login.** Music Assistant 2.8+ requires authentication on
    its WebSocket API. In Music Assistant, go to **Settings → Users** and create
    a user with a username and password (or reuse an existing one). You'll enter
@@ -56,9 +58,10 @@ seed, and save controls all live under **Settings**.
 - Use the **Listening** switcher (Mom / Dad / Kids, plus **＋** to add people) to
   choose whose taste drives the DJ.
 - Click **♥** (Like) on the Now Playing card to favorite the current track
-  (synced to Tidal through Music Assistant), or **🚫** to block it for 30 days.
-- Use **Save Session as a Tidal Playlist** to save everything you've heard this
-  session to a new Tidal playlist.
+  (synced through Music Assistant to whichever source the track came from), or
+  **🚫** to block it for 30 days.
+- Use **Save Session as a Playlist** to save everything you've heard this session
+  to a new playlist (created on the source the session played).
 - The **decision log** shows Claude's reasoning for each pick.
 
 ## Seed your taste from a YouTube Music playlist
@@ -68,8 +71,8 @@ and click **Seed**. TideSync reads the playlist's track and artist names and ask
 Claude to build your taste profile from them.
 
 - The playlist must be **public** — the fetch is unauthenticated.
-- This only shapes *what the DJ picks*. Playback still happens through **Tidal in
-  Music Assistant**; TideSync does not play YouTube Music itself.
+- This only shapes *what the DJ picks*. Playback still happens through your
+  **Music Assistant** providers; TideSync does not play YouTube Music itself.
 
 ## Optional: set the vibe from anywhere in HA
 
@@ -93,12 +96,13 @@ Claude to build your taste profile from them.
   login note above). Idle players are listed even when they show as unavailable;
   Start Radio will wake the one you pick.
 - **Start Radio says "none could be found"** — Claude picked tracks but Music
-  Assistant couldn't resolve them via its providers. Make sure Tidal (or another
-  provider) is connected and working in MA.
+  Assistant couldn't resolve them via its providers. Make sure at least one music
+  provider is connected and working in MA.
 - **Seeding fails** — the YouTube Music playlist must be **public**. Double-check
   the URL contains a `list=` parameter.
 - **Like / Save playlist fails** — these need Music Assistant's favorites and
-  playlist commands plus a Tidal provider that allows library edits. Check the
+  playlist commands plus a source provider that allows library edits (not every
+  provider does). Check the
   add-on **Log** tab for the exact error; the command names live in
   `app/ma_client.py` if your MA version differs.
 - **Music Assistant command errors** — MA's WebSocket command names can vary by

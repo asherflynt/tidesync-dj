@@ -223,9 +223,17 @@ async def seed(request: Request, body: SeedBody):
     return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
 
+@app.post("/playpause")
+async def playpause(request: Request):
+    """Toggle play/pause based on the live player state."""
+    result = await _engine(request).toggle_playback()
+    return JSONResponse(result)
+
+
 @app.post("/pause")
 async def pause(request: Request):
-    result = await _engine(request).pause()
+    # Kept for back-compat; delegates to the toggle so a paused player resumes.
+    result = await _engine(request).toggle_playback()
     return JSONResponse(result)
 
 

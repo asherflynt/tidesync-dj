@@ -64,6 +64,25 @@ def _track_uri(item: dict[str, Any] | None) -> str | None:
     return media.get("uri") or item.get("uri")
 
 
+def _provider_of(uri: str) -> str | None:
+    """Provider id from an MA URI ("<provider>://<type>/<id>" -> "<provider>")."""
+    if uri and "://" in uri:
+        return uri.split("://", 1)[0] or None
+    return None
+
+
+def _detect_session_provider(uris: list[str]) -> str | None:
+    """Return the provider shared by every session URI, or None if mixed/empty.
+
+    A streaming playlist can only hold tracks from its own provider, so we save
+    on the provider the session actually played. When the session mixed sources
+    (or none could be parsed) we return None and the caller falls back to the
+    configured provider.
+    """
+    providers = {p for p in (_provider_of(u) for u in uris) if p}
+    return next(iter(providers)) if len(providers) == 1 else None
+
+
 class DJEngine:
     def __init__(
         self,
@@ -82,6 +101,12 @@ class DJEngine:
         self._users = users
 
         self.vibe_prompt: str = ""
+        # When the listener starts radio from a hand-picked song we keep that
+        # seed around so every auto-refill keeps building the same station,
+        # instead of reverting to the stored taste profile after the first batch.
+        # Cleared by any other rebuild (vibe change, nudge, person switch, plain
+        # start radio).
+        self._radio_seed_label: str | None = None
         self.decision_log: deque[dict[str, Any]] = deque(maxlen=50)
         # Soft, session-only skip signal. Populated ONLY by the UI skip button —
         # never by automatic track-change detection — and never persisted.
@@ -297,6 +322,18 @@ class DJEngine:
                     f"ask for at this time) and 'recent_likes', then select exactly "
                     f"{QUEUE_TARGET} tracks. Never queue anything in 'blocked_tracks'."
                 )
+        elif seed_label:
+            # Ongoing auto-refill of a station seeded from a hand-picked song.
+            # Keep it on-theme with the seed and what has actually played rather
+            # than drifting back to the broad taste profile.
+            ctx["seed_track"] = seed_label
+            ctx["instruction"] = (
+                f"This is an ongoing radio station seeded from '{seed_label}'. Keep it "
+                f"flowing: pick exactly {QUEUE_TARGET} tracks that stay on-theme with the "
+                f"seed and the tracks already played this session (see 'recent_history'), "
+                "evolving naturally rather than reverting to the broader taste profile. "
+                "Never queue anything in 'blocked_tracks' and don't repeat recent tracks."
+            )
         return ctx
 
     async def _run_decision(
@@ -405,7 +442,11 @@ class DJEngine:
             return {"ok": True, "decision": entry}
 
     async def tick(self, reason: str = "manual") -> dict[str, Any]:
-        return await self._run_decision(reason=reason, play_option="add")
+        # Carry the active radio seed (if any) into every auto-refill so the
+        # station keeps building around the hand-picked song.
+        return await self._run_decision(
+            reason=reason, play_option="add", seed_label=self._radio_seed_label
+        )
 
     async def _rebuild(
         self,
@@ -450,12 +491,17 @@ class DJEngine:
         self._last_current = None
         if seed_uri:
             # Play the hand-picked seed now; Claude appends the station after it.
+            # Remember the seed so later auto-refills keep the station on-theme.
+            self._radio_seed_label = seed_label
             if not await self._ma.enqueue_uri(seed_uri, option="play"):
                 return {"ok": False, "error": "Couldn't start the seed track."}
             await self._ma.ensure_playing()
             return await self._run_decision(
                 reason=reason, play_option="add", fresh_start=True, seed_label=seed_label
             )
+        # Any non-seed rebuild (vibe change, nudge, person switch, plain start
+        # radio) ends the seeded station — release the seed.
+        self._radio_seed_label = None
         return await self._run_decision(
             reason=reason, play_option="play", fresh_start=True
         )
@@ -520,6 +566,20 @@ class DJEngine:
     async def pause(self) -> dict[str, Any]:
         ok = await self._ma.pause()
         return {"ok": ok}
+
+    async def toggle_playback(self) -> dict[str, Any]:
+        """Toggle play/pause based on the live player state.
+
+        Pausing alone left no way to resume — the transport button always sent
+        pause. Here we read the actual state and send the opposite command,
+        returning the intended new state so the UI icon can update immediately.
+        """
+        state = await self._ma.get_play_state()
+        if state == "playing":
+            ok = await self._ma.pause()
+            return {"ok": ok, "player_state": "paused"}
+        ok = await self._ma.ensure_playing()
+        return {"ok": ok, "player_state": "playing"}
 
     async def skip(self) -> dict[str, Any]:
         """Skip the current track (the ONLY thing that records a skip).
@@ -592,7 +652,7 @@ class DJEngine:
         return {"ok": True, "track_count": len(tracks), "summary": summary}
 
     # ------------------------------------------------------------------ #
-    # Tidal: like a track / save the session as a playlist
+    # Like a track / save the session as a playlist (any MA music source)
     # ------------------------------------------------------------------ #
     async def _resolve_current(self) -> tuple[str | None, str | None]:
         """Return (uri, label) for the currently-playing track, querying MA if needed."""
@@ -609,8 +669,8 @@ class DJEngine:
         return uri, label
 
     async def like_current(self) -> dict[str, Any]:
-        """Favorite the currently playing track (syncs to Tidal via MA) and log it
-        to the active person's memory."""
+        """Favorite the currently playing track (MA syncs it to the track's source
+        provider) and log it to the active person's memory."""
         uri, label = await self._resolve_current()
         if not uri:
             return {"ok": False, "error": "Nothing is playing to like."}
@@ -637,15 +697,17 @@ class DJEngine:
         return {"ok": True, "blocked": label or uri, "person": person.name}
 
     async def save_session_playlist(self, name: str) -> dict[str, Any]:
-        """Create a Tidal playlist from the tracks heard this session."""
+        """Create a playlist (on whatever music source the session played) from the
+        tracks heard this session."""
         uris = list(self._session_uris.keys())
         if not uris:
             return {"ok": False, "error": "No tracks have played yet this session."}
         name = name.strip() or datetime.now().strftime("TideSync %Y-%m-%d %H:%M")
+        # Save on the provider the session actually played (so the URIs are
+        # accepted); for a mixed/unknown session, use the configured override.
+        provider = _detect_session_provider(uris) or self._config.playlist_provider
         try:
-            playlist = await self._ma.create_playlist(
-                name, provider=self._config.tidal_provider
-            )
+            playlist = await self._ma.create_playlist(name, provider=provider)
         except Exception as err:  # noqa: BLE001
             return {
                 "ok": False,
@@ -681,11 +743,17 @@ class DJEngine:
             album_art = img.get("path") or None
 
         can_act = bool(_track_uri(current_item) or self.current_uri)
+        # Prefer the player's authoritative state so the play/pause icon flips on
+        # pause; the queue meta state doesn't always report a pause.
+        try:
+            player_state = await self._ma.get_play_state()
+        except Exception:  # noqa: BLE001
+            player_state = queue.get("state")
         return {
             "configured": bool(self._config.anthropic_api_key),
             "now_playing": _track_label(current_item),
             "album_art": album_art,
-            "player_state": queue.get("state"),  # "playing" | "paused" | "idle" | None
+            "player_state": player_state,  # "playing" | "paused" | "idle" | None
             "vibe": self.vibe_prompt or None,
             "time_of_day": _time_of_day(),
             "items_remaining": queue.get("items_remaining", 0),

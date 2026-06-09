@@ -1,7 +1,7 @@
 name: TideSync DJ
-version: "0.7.7"
+version: "0.8.0"
 slug: tidesync_dj
-description: AI-powered Tidal DJ using Music Assistant and Claude
+description: AI-powered DJ for any Music Assistant source, powered by Claude
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj
 arch:
   - amd64
@@ -25,7 +25,7 @@ options:
   ma_password: ""
   ma_token: ""
   vibe_input_text_entity: ""
-  tidal_provider: "tidal"
+  playlist_provider: ""
 schema:
   anthropic_api_key: str
   claude_model: list(claude-sonnet-4-6|claude-opus-4-8|claude-haiku-4-5)
@@ -37,4 +37,6 @@ schema:
   dj_tick_interval: int
   skip_penalty_seconds: int
   vibe_input_text_entity: str?
+  playlist_provider: str?
+  # Deprecated alias for playlist_provider; honoured if present on upgrade.
   tidal_provider: str?

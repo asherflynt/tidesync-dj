@@ -1,8 +1,8 @@
 # TideSync DJ
 
-> Self-hosted, AI-powered Tidal DJ that runs as a **Home Assistant add-on**,
-> drives playback through **Music Assistant**, and uses **Claude** as the DJ
-> decision brain.
+> Self-hosted, AI-powered DJ that runs as a **Home Assistant add-on**, drives
+> playback through **Music Assistant** (any configured music source — Tidal,
+> Spotify, local library, etc.), and uses **Claude** as the DJ decision brain.
 
 TideSync watches your Music Assistant queue and listening history, builds a
 real-time mood context, and asks Claude what to play next — sequencing tracks
@@ -14,7 +14,7 @@ time of day.
 
 ```
 [HA Supervisor] → /data/options.json → configures the add-on
-[FastAPI app]   → WebSocket → [Music Assistant]  (queue control, Tidal provider)
+[FastAPI app]   → WebSocket → [Music Assistant]  (queue control, your music providers)
                 → REST API  → [Anthropic Claude]  (next-track decisions)
                 → REST API  → [HA Supervisor API] (presence, events, vibe helper)
 [Ingress UI]    → embedded panel in the HA sidebar
@@ -50,7 +50,7 @@ and appends them to the active queue.
 | `dj_tick_interval` | Polling fallback interval (seconds) | `30` |
 | `skip_penalty_seconds` | Track-change-within window counts as a skip | `30` |
 | `vibe_input_text_entity` | Optional `input_text.*` helper to poll for the vibe | — |
-| `tidal_provider` | MA provider used for likes/playlists | `tidal` |
+| `playlist_provider` | MA provider for saved playlists; blank = auto-detect from what played | _(auto)_ |
 
 > **Music Assistant 2.8+ requires authentication.** Create a user in Music
 > Assistant (**Settings → Users**) and set `ma_username`/`ma_password`. Without
@@ -102,7 +102,7 @@ Highlights:
   (plays right after the current track without interrupting it) or append it to
   the end of the queue.
 - **Settings** — player selection, Start Radio, vibe/nudge, the **Listening**
-  (per-person) switcher, session stats, taste seeding, save-to-Tidal, and the
+  (per-person) switcher, session stats, taste seeding, save-as-playlist, and the
   DJ decision log.
 
 The goal is to run the whole session here without opening the Music Assistant
@@ -123,25 +123,27 @@ UI (except to build your own playlists).
 | `GET`  | `/players` | Available Music Assistant players |
 | `POST` | `/players/select` | Choose a player: `{"player_id": "..."}` |
 | `POST` | `/start_radio` | Start playback with a fresh AI-picked set |
+| `POST` | `/playpause` | Toggle play/pause on the active player |
 | `POST` | `/seed` | Seed taste from a YouTube Music playlist: `{"playlist": "<url>"}` |
-| `POST` | `/like` | Like the current track in Tidal |
+| `POST` | `/like` | Like the current track (synced to its source provider) |
 | `POST` | `/block` | Block the current track for 30 days |
 | `POST` | `/nudge` | Force a fresh decision immediately |
-| `POST` | `/save_playlist` | Save the session's tracks as a Tidal playlist: `{"name": "..."}` |
+| `POST` | `/save_playlist` | Save the session's tracks as a playlist: `{"name": "..."}` |
 | `POST` | `/tick` | Manually trigger a decision cycle |
 | `GET`  | `/history` | Recent DJ decisions |
 | `GET`/`POST` | `/users`, `/users/select`, `/users/add` | List/switch/add listeners |
 
-### Like tracks & save the session to Tidal
+### Like tracks & save the session as a playlist
 
-- **♥ Like in Tidal** (on the Now Playing card) favorites the current track.
-  This goes through Music Assistant's favorites, which syncs to the Tidal
-  provider.
-- **Save Session as a Tidal Playlist** creates a new Tidal playlist from every
-  track heard this session. The target provider is the `tidal_provider` option
-  (default `tidal`).
+- **♥ Like** (on the Now Playing card) favorites the current track. This goes
+  through Music Assistant's favorites, which syncs to whichever provider owns the
+  track (the URI's source — Tidal, Spotify, etc.).
+- **Save Session as a Playlist** creates a new playlist from every track heard
+  this session. By default the target provider is auto-detected from the tracks
+  that played; set the `playlist_provider` option to force a specific provider
+  (useful for sessions that mixed multiple sources).
 
-> These rely on Music Assistant's favorites/playlist commands and the Tidal
+> These rely on Music Assistant's favorites/playlist commands and the source
 > provider supporting library edits. If your MA version names these commands
 > differently, they're centralized as `CMD_FAVORITE_ADD`,
 > `CMD_PLAYLIST_CREATE`, and `CMD_PLAYLIST_ADD_TRACKS` in `app/ma_client.py`.
@@ -160,9 +162,9 @@ paste its URL in the dashboard and click **Seed**. TideSync reads the playlist's
 track/artist names (unauthenticated, via `ytmusicapi`) and asks Claude to build
 your taste summary from them.
 
-> This only *shapes what the DJ picks* — playback still happens through **Tidal
-> in Music Assistant**. TideSync does not play YouTube Music, and private
-> playlists are not supported (the fetch is unauthenticated).
+> This only *shapes what the DJ picks* — playback still happens through your
+> **Music Assistant** providers. TideSync does not play YouTube Music itself, and
+> private playlists are not supported (the fetch is unauthenticated).
 
 ## Home Assistant integration
 

@@ -27,7 +27,9 @@ class Config:
     ma_username: str
     ma_password: str
     ma_token: str
-    tidal_provider: str
+    # MA music provider used when saving a session playlist. Blank = auto-detect
+    # from the tracks that played; otherwise this forces a specific provider.
+    playlist_provider: str
     data_dir: Path
 
     @property
@@ -81,6 +83,10 @@ def load_config() -> Config:
         ma_username=str(_get("ma_username", "")),
         ma_password=str(_get("ma_password", "")),
         ma_token=str(_get("ma_token", "")),
-        tidal_provider=str(_get("tidal_provider", "") or "tidal"),
+        # New generic key, falling back to the legacy `tidal_provider` so existing
+        # installs keep working. Default "tidal" preserves prior behaviour.
+        playlist_provider=str(
+            _get("playlist_provider", "") or _get("tidal_provider", "") or "tidal"
+        ),
         data_dir=DATA_DIR,
     )

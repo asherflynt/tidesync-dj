@@ -1,14 +1,15 @@
 # TideSync DJ — Home Assistant Add-on Repository
 
 A Home Assistant add-on repository containing **TideSync DJ**: a self-hosted,
-AI-powered Tidal DJ that drives playback through Music Assistant and uses Claude
-as the decision brain.
+AI-powered DJ that drives playback through Music Assistant (any music source you
+have configured — Tidal, Spotify, your local library, etc.) and uses Claude as
+the decision brain.
 
 ## Add-ons in this repository
 
 | Add-on | Description |
 |--------|-------------|
-| [TideSync DJ](./tidesync_dj) | AI-powered Tidal DJ using Music Assistant and Claude |
+| [TideSync DJ](./tidesync_dj) | AI-powered DJ for any Music Assistant source, powered by Claude |
 
 ## Installation
 
