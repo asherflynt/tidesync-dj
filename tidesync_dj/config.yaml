@@ -1,5 +1,5 @@
 name: TideSync DJ
-version: "0.7.5"
+version: "0.7.6"
 slug: tidesync_dj
 description: AI-powered Tidal DJ using Music Assistant and Claude
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj
@@ -9,7 +9,7 @@ arch:
 init: false
 ingress: true
 ingress_port: 8099
-panel_icon: mdi:music-note-bluetooth
+panel_icon: mdi:disc-player
 panel_title: TideSync DJ
 # Only the Core REST API is needed (states + events). We deliberately do NOT
 # request hassio_api / host access — least privilege.

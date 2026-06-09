@@ -122,7 +122,8 @@
   .np-header {
     display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex: 0 0 auto;
   }
-  .np-header h1 { font-size: 18px; margin: 0; font-weight: 800; letter-spacing: -.3px; }
+  .np-header h1 { font-size: 18px; margin: 0; font-weight: 800; letter-spacing: -.3px; display: inline-flex; align-items: center; gap: 6px; }
+  .brand-icon { width: 1.15em; height: 1.15em; fill: currentColor; flex: 0 0 auto; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #555; flex: 0 0 auto; }
   .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   .dot.connecting { background: var(--warn); box-shadow: 0 0 8px var(--warn);
@@ -327,7 +328,7 @@
       <div class="np-header">
         <span class="dot connecting" id="conn"></span>
         <span class="conn-text connecting" id="connText">Connecting…</span>
-        <h1>🎧 TideSync DJ</h1>
+        <h1><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5,10.37C15.54,10.37 16.38,9.53 16.38,8.5C16.38,7.46 15.54,6.63 14.5,6.63C13.46,6.63 12.63,7.46 12.63,8.5A1.87,1.87 0 0,0 14.5,10.37M14.5,1A7.5,7.5 0 0,1 22,8.5C22,10.67 21.08,12.63 19.6,14H9.4C7.93,12.63 7,10.67 7,8.5C7,4.35 10.36,1 14.5,1M6,21V22H4V21H2V15H22V21H20V22H18V21H6M4,18V19H13V18H4M15,17V19H17V17H15M19,17A1,1 0 0,0 18,18A1,1 0 0,0 19,19A1,1 0 0,0 20,18A1,1 0 0,0 19,17Z"/></svg> TideSync DJ</h1>
         <span class="pill model" id="model"></span>
       </div>
 
