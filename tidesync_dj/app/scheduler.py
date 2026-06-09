@@ -24,26 +24,21 @@ from config import Config
 from ha_client import HAClient
 from ma_client import MusicAssistantClient, EVENT_QUEUE_UPDATED, EVENT_QUEUE_TIME_UPDATED
 from taste_profile import TasteProfile
-from user_memory import UserStore
+from timectx import month_bucket, time_of_day_slot
+from user_memory import Person, UserStore
 
 _LOGGER = logging.getLogger(__name__)
 
 ENQUEUE_THRESHOLD = 5   # tick when fewer than this many tracks remain
 QUEUE_TARGET = 30       # how many tracks to request from Claude per decision
 SEED_PLAYLIST_SAMPLE = 15  # max playlist tracks woven into the opening seed queue
+PERSON_REFINE_EVERY = 20   # refine the active person's taste every N decisions
 
 
 def _time_of_day(now: datetime | None = None) -> str:
-    hour = (now or datetime.now()).hour
-    if 5 <= hour < 12:
-        return "morning"
-    if 12 <= hour < 17:
-        return "afternoon"
-    if 17 <= hour < 21:
-        return "evening"
-    if 21 <= hour < 24:
-        return "night"
-    return "late_night"  # 00:00 - 04:59
+    # Thin wrapper so existing call sites keep working; the slot boundaries live
+    # in timectx so the scheduler and user_memory bucket identically.
+    return time_of_day_slot(now)
 
 
 def _track_label(item: dict[str, Any] | None) -> str | None:
@@ -118,6 +113,12 @@ class DJEngine:
         # Ordered, de-duplicated track URIs seen this session (for "save as
         # playlist"). dict preserves insertion order and dedupes by key.
         self._session_uris: dict[str, None] = {}
+        # Per-person decision counter (in-memory) that paces background taste
+        # refinement. Keyed by person slug; a restart just delays the next refine.
+        self._person_decision_counts: dict[str, int] = {}
+        # Strong refs to in-flight background refine tasks so they aren't GC'd
+        # mid-run (create_task only keeps a weak reference).
+        self._refine_tasks: set[asyncio.Task] = set()
 
         self._current_track_id: str | None = None
         self._current_track_started = time.monotonic()
@@ -299,18 +300,29 @@ class DJEngine:
         duration_mins = round((time.monotonic() - self.session_started) / 60)
         person = self._users.active
         tod = _time_of_day()
+        month = month_bucket()
+        # Per-person taste leads; fall back to the household baseline only when the
+        # person has no learned/seeded taste of their own.
+        person_taste = (person.summary or "").strip()
+        household_taste = (self._taste.summary or "").strip()
+        effective_taste = person_taste or household_taste
         ctx = {
-            "taste_profile": self._taste.summary,
+            "taste_profile": effective_taste,
+            "taste_profile_scope": "listener" if person_taste else "household",
             "listener": person.name,
             "recent_history": [_track_label(i) for i in history],
             "current_track": _track_label(queue.get("current_item")),
             "queue": [_track_label(i) for i in queue.get("items", [])],
             "recent_skips": self.recent_skips,
             "recent_likes": person.recent_likes(),
+            "likes_this_time_of_day": person.likes_for_slot(tod),
+            "likes_this_month": person.likes_for_month(month),
             "blocked_tracks": person.blocked_labels(),
             "moods_this_time_of_day": person.moods_for(tod),
+            "moods_this_month": person.moods_for_month(month),
             "vibe_prompt": self.vibe_prompt or None,
             "time_of_day": tod,
+            "time_context": {"time_of_day": tod, "month": month},
             "listening_duration_mins": duration_mins,
             "tracks_to_add": QUEUE_TARGET,
         }
@@ -321,22 +333,29 @@ class DJEngine:
                 ctx["instruction"] = (
                     f"The listener hand-picked '{seed_label}' as a seed and it is now "
                     f"playing. Build a radio station around it: pick exactly {QUEUE_TARGET} "
-                    "tracks that flow from this seed — matching its genre, energy and era — "
-                    "while honouring the taste profile and never queuing anything in "
-                    "'blocked_tracks'. Do NOT repeat the seed track."
+                    "tracks that flow from this seed — matching its genre, energy and era. "
+                    "The seed dominates; the taste profile is only a secondary tiebreaker. "
+                    "Never queue anything in 'blocked_tracks'. Do NOT repeat the seed track."
                 )
             elif self.vibe_prompt:
                 ctx["instruction"] = (
-                    f"Starting a brand new radio session for {person.name} — select exactly "
-                    f"{QUEUE_TARGET} tracks that set the mood from their taste profile, the "
-                    "current vibe, and the time of day."
+                    f"The vibe '{self.vibe_prompt}' defines the genre and energy for "
+                    f"{person.name} — match it even where it diverges from the taste "
+                    "profile. Any songs or artists named in the vibe are must-plays: "
+                    f"include them somewhere in the {QUEUE_TARGET}-track set (not "
+                    "necessarily first) and build around them. Use taste only as a "
+                    "secondary tiebreaker, and vary from 'recent_history' so repeat "
+                    "sessions differ. Never queue anything in 'blocked_tracks'."
                 )
             else:
                 ctx["instruction"] = (
-                    f"Starting a brand new radio session for {person.name} with NO explicit "
-                    f"vibe. Infer the mood from 'moods_this_time_of_day' (what they usually "
-                    f"ask for at this time) and 'recent_likes', then select exactly "
-                    f"{QUEUE_TARGET} tracks. Never queue anything in 'blocked_tracks'."
+                    f"Plain radio for {person.name} with no vibe and no seed. Lead with "
+                    "what they typically ask for and like right now — see "
+                    "'moods_this_time_of_day'/'moods_this_month' and "
+                    "'likes_this_time_of_day'/'likes_this_month' — set the energy to suit "
+                    f"'{tod}', and use the taste profile only as the backbone palette. "
+                    f"Select exactly {QUEUE_TARGET} tracks, varying from 'recent_history'. "
+                    "Never queue anything in 'blocked_tracks'."
                 )
         elif seed_label:
             # Ongoing auto-refill of a station seeded from a hand-picked song.
@@ -348,7 +367,8 @@ class DJEngine:
                 f"flowing: pick exactly {QUEUE_TARGET} tracks that stay on-theme with the "
                 f"seed and the tracks already played this session (see 'recent_history'), "
                 "evolving naturally rather than reverting to the broader taste profile. "
-                "Never queue anything in 'blocked_tracks' and don't repeat recent tracks."
+                "The seed dominates; taste is secondary. Never queue anything in "
+                "'blocked_tracks' and don't repeat recent tracks."
             )
         return ctx
 
@@ -498,10 +518,19 @@ class DJEngine:
                 },
             )
 
-            # Periodically refine the taste profile.
+            # Periodically refine the household taste profile.
             if self._taste.record_decision():
                 history = await self._ma.get_history(n=30)
                 await self._taste.maybe_update(self._brain, history)
+
+            # Periodically refine the ACTIVE person's taste from their own
+            # signals (likes/blocks/moods), in the background so it never blocks
+            # the enqueue path.
+            active = self._users.active
+            count = self._person_decision_counts.get(active.slug, 0) + 1
+            self._person_decision_counts[active.slug] = count
+            if count % PERSON_REFINE_EVERY == 0:
+                self._schedule_person_refine(active)
 
             if play_option == "play" and not enqueued:
                 return {
@@ -641,6 +670,12 @@ class DJEngine:
         if not self._users.select(slug):
             return {"ok": False, "error": f"Unknown person: {slug}"}
         _LOGGER.info("Switched active person to %s", slug)
+        # Don't carry the previous person's vibe over. Recall this person's most
+        # recent vibe for the current time of day; otherwise clear it so the new
+        # person starts from their own taste/moods.
+        person = self._users.active
+        recalled = person.moods_for(_time_of_day())
+        self.vibe_prompt = recalled[-1] if recalled else ""
         # Rebuild immediately so playback reflects the new person's preferences.
         result = await self._rebuild("person_switch")
         result["active"] = self._users.active_slug
@@ -651,6 +686,31 @@ class DJEngine:
             return {"ok": False, "error": "Name is required."}
         person = self._users.add_person(name)
         return {"ok": True, "slug": person.slug, "name": person.name}
+
+    # ------------------------------------------------------------------ #
+    # Per-person taste learning (background)
+    # ------------------------------------------------------------------ #
+    def _schedule_person_refine(self, person: Person) -> None:
+        """Fire-and-forget background refinement of one person's taste."""
+        task = asyncio.create_task(self._refine_person_taste(person))
+        self._refine_tasks.add(task)
+        task.add_done_callback(self._refine_tasks.discard)
+
+    async def _refine_person_taste(self, person: Person) -> None:
+        """Refine `person.summary` from their tracked signals. Always non-fatal."""
+        try:
+            signals = person.learning_signals()
+            if not any(signals.values()):
+                return  # nothing learned yet
+            new_summary = await self._brain.summarize_person_taste(
+                signals, previous=person.summary
+            )
+            if new_summary and new_summary != person.summary:
+                person.set_summary(new_summary)
+                self._users.save(person)
+                _LOGGER.info("Refined taste profile for %s", person.name)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Person taste refine failed for %s: %s", person.name, err)
 
     # ------------------------------------------------------------------ #
     # Players
@@ -825,14 +885,16 @@ class DJEngine:
         return {"ok": True, "liked": label or uri, "person": person.name}
 
     async def block_current(self) -> dict[str, Any]:
-        """Block the current track for 30 days for the active person and skip it now."""
+        """Block the current track for the active person (escalating cooldown) and skip it now."""
         uri, label = await self._resolve_current()
         if not uri:
             return {"ok": False, "error": "Nothing is playing to block."}
         person = self._users.active
         person.add_block(label, uri)
         self._users.save(person)
-        _LOGGER.info("Blocked %s for %s (30 days)", label or uri, person.name)
+        _LOGGER.info("Blocked %s for %s", label or uri, person.name)
+        # A block is a high-value taste signal — refine this person now (background).
+        self._schedule_person_refine(person)
         # Stop the song immediately — that's why you blocked it.
         await self._ma.skip()
         return {"ok": True, "blocked": label or uri, "person": person.name}

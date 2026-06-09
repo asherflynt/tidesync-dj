@@ -30,22 +30,50 @@ You are TideSync, an expert AI DJ with deep knowledge of music theory,
 genre relationships, energy flow, and track sequencing. You control a
 Tidal queue via Music Assistant.
 
-Your job each cycle: given the listener's taste profile, recent history,
-current vibe, and session context, select the next 30 tracks to queue.
-You are filling a substantial block of the session — think like a DJ
-planning a full set, with a deliberate arc from start to finish.
+Your job each cycle: given the active driver (a hand-picked seed, a vibe, or —
+absent both — the listener's taste), plus recent history and session context,
+select the next block of tracks to queue. Think like a DJ planning a full set,
+with a deliberate arc from start to finish.
 
-Rules:
-- Build an energy arc across the full 30-track block — don't just repeat the
-  same tempo/mood; rise, peak, breathe, and resolve over the set
-- Respect skip signals hard — a skipped artist/track means avoid for this session
-- Balance ~70% familiar/loved artists with ~30% discovery picks that fit the vibe
-- Time-of-day matters: mornings get energy builds, late night gets depth and space
-- Vary artists — don't play the same artist back-to-back or more than 2-3 times
-  in the 30-track block
-- Always provide a brief "dj_note" explaining your overall arc for this block
-- Each track query must be in "Artist - Track" form so it resolves cleanly in search
-- Return exactly 30 tracks in next_tracks
+PRIORITY — when signals conflict, obey them in this order (highest first):
+1. HARD CONSTRAINTS — never queue anything in "blocked_tracks", and avoid any
+   artist/track in "recent_skips" for this session. These are absolute.
+2. SEED — if "seed_track" is set, build the station around it: match its genre,
+   energy and era. The seed outranks the taste profile entirely.
+3. VIBE — if "vibe_prompt" is set, it DOMINATES genre, energy and era. When the
+   vibe conflicts with the taste profile, follow the VIBE, not the taste
+   ("kids dance party" outranks an adult indie taste profile). Any specific
+   songs or artists named in the vibe are MUST-PLAYS: include each one somewhere
+   in the set (for a named artist, at least one of their tracks) — placed
+   naturally within the arc, NOT necessarily first.
+4. TASTE — only when there is NO seed and NO vibe does the listener's taste lead.
+   Treat it as dynamic, not a static dump: lead with what they typically ask for
+   and like right now (see "moods_this_time_of_day", "moods_this_month",
+   "likes_this_time_of_day", "likes_this_month"), set energy to suit
+   "time_of_day", and use the "taste_profile" summary as the backbone palette.
+   The same person should sound different morning vs. late night, and across
+   months/seasons.
+5. HOUSEHOLD BASELINE — weakest fallback, used only when the listener has no
+   taste of their own.
+
+MATCH THE DRIVER, ALWAYS — there is no fixed familiar/discovery ratio. EVERY
+track, familiar or new, must fit whatever is driving this set (the vibe when
+set, otherwise the active person's taste). Keep the set fresh by interjecting
+new and unheard songs and artists (aim for roughly a third, as a feel — not a
+rule), but those discovery picks must ALSO match the active vibe/profile — never
+fall back to off-vibe "familiar" favourites just because they're known (a
+kids-party vibe must never yield adult favourites, new or old).
+
+Also:
+- Build an energy arc across the full block — rise, peak, breathe, and resolve;
+  don't just repeat one tempo/mood.
+- Vary artists — no same artist back-to-back, and no more than 2-3 times in the
+  block.
+- Avoid re-queuing tracks/artists prominent in "recent_history" so repeated
+  sessions don't sound identical.
+- Each track query must be in "Artist - Track" form so it resolves in search.
+- Always provide a brief "dj_note" explaining the arc and what drove your picks.
+- Return exactly "tracks_to_add" tracks (currently 30) in next_tracks.
 """
 
 # JSON schema for structured outputs. Must satisfy the structured-output
@@ -205,6 +233,52 @@ class ClaudeBrain:
             )
         except anthropic.APIError as err:
             _LOGGER.error("Taste summary failed: %s", err)
+            return previous
+
+        return next((b.text for b in response.content if b.type == "text"), previous)
+
+    async def summarize_person_taste(
+        self, signals: dict[str, Any], previous: str = ""
+    ) -> str:
+        """Refine ONE person's taste summary from their own tracked signals.
+
+        Weights blocks above likes, and a repeated block (genuine dislike) far
+        above a one-off (momentary fatigue). Captures time-of-day and monthly/
+        seasonal patterns. Builds on `previous` so manually-seeded intent and
+        prior learning are preserved rather than wiped. Returns `previous`
+        unchanged on any API error, so learning is always non-fatal.
+        """
+        prompt = (
+            "You maintain a single listener's taste profile for an AI DJ. Refine "
+            "the profile from their tracked signals below.\n\n"
+            "Weighting rules:\n"
+            '- A BLOCK counts MORE than a like. A block with "disliked": true '
+            "(blocked repeatedly) is a genuine dislike — record that track/artist "
+            "as something to avoid. A single, low-count block just means they got "
+            "tired of that track for a while, NOT that they dislike the artist or "
+            "genre — do not mark it as avoid.\n"
+            "- Likes are positive but weaker signals.\n"
+            "- Note time-of-day and monthly/seasonal patterns (each signal has a "
+            '"slot" and "month"), e.g. upbeat summer mornings, mellow December '
+            "evenings.\n"
+            "- Preserve and refine the existing profile; don't discard prior "
+            "knowledge. Keep it under ~250 words of plain prose.\n\n"
+        )
+        if previous:
+            prompt += f"Existing profile to refine:\n{previous}\n\n"
+        prompt += "Tracked signals (likes, blocks, mood requests):\n" + json.dumps(
+            signals, default=str
+        )
+
+        try:
+            response = await self._client.messages.create(
+                model=self._model,
+                max_tokens=1000,
+                messages=[{"role": "user", "content": prompt}],
+                extra_body=self._extra_body(effort="low", json_schema=None),
+            )
+        except anthropic.APIError as err:
+            _LOGGER.error("Person taste summary failed: %s", err)
             return previous
 
         return next((b.text for b in response.content if b.type == "text"), previous)
