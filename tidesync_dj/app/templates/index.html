@@ -294,12 +294,18 @@
       justify-content: flex-start; flex: 0 0 auto; min-height: 0; overflow: hidden;
     }
     /* The album art resizes with the viewport — a square capped by the smaller
-       of the column width, 40% of viewport height, and 440px. This keeps the
-       Now Playing block short enough to leave Search visible on short screens,
-       and grows the art back toward its 440px cap on tall ones. */
+       of the column width, 26% of viewport height, and 300px. Kept deliberately
+       small so the Now Playing block stays compact and the scrollable Search
+       results below it show several tracks at once instead of just one. */
     .panel#p-np .art-wrap {
-      width: min(100%, 40vh, 440px); height: auto; aspect-ratio: 1 / 1;
+      width: min(100%, 26vh, 300px); height: auto; aspect-ratio: 1 / 1;
+      margin-bottom: 12px;
     }
+    /* Tighten the rest of the Now Playing stack in the height-constrained
+       column so more of the column goes to the results list. */
+    .panel#p-np .np-header { margin-bottom: 10px; }
+    .panel#p-np .track-meta { margin-bottom: 10px; }
+    .panel#p-np .controls { margin-bottom: 10px; }
     /* Search fills the height left under Now Playing; only its results scroll. */
     .panel#p-search { flex: 1 1 auto; min-height: 0; }
     .panel#p-search .card { flex: 1 1 auto; min-height: 0; overflow-y: auto; }

@@ -260,7 +260,14 @@ class DJEngine:
         button (see :meth:`skip`).
         """
         current = queue_or_event.get("current_item")
-        track_id = current.get("queue_item_id") or current.get("uri") if current else None
+        # Identify the track by URI — the one key that is stable across BOTH
+        # event shapes that feed this method. `queue_updated` delivers a queue
+        # item (which carries a queue_item_id), while `media_item_played`
+        # delivers a bare media item (no queue_item_id, only a uri). Keying on
+        # queue_item_id made a single physical track look like a brand-new one
+        # every time those two event types interleaved during playback, which
+        # inflated tracks_played (e.g. "10 played" while still on track 1).
+        track_id = _track_uri(current)
         # No current item usually means a reconnect gap — ignore it.
         if track_id is None or track_id == self._current_track_id:
             return
@@ -384,6 +391,19 @@ class DJEngine:
         actually play alongside the new ones.
         """
         async with self._tick_lock:
+            # Honour a Stop that landed while we were waiting for the lock. A
+            # background top-up can clear tick()'s _dj_stopped gate, then block
+            # on _tick_lock behind an in-flight enqueue; by the time it acquires
+            # the lock the user may have pressed Stop (which sets the flag and
+            # clears the queue). The post-lock "is the player playing?" check
+            # below isn't enough — MA's reported state lags a stop by a beat, so
+            # a stale tick would still see "playing" and refill. The flag is the
+            # authoritative signal of user intent. Rebuilds (Start Radio / Set
+            # Vibe / Nudge / person switch) lift the flag before calling, so
+            # they are never blocked here.
+            if self._dj_stopped:
+                _LOGGER.debug("_run_decision(%s) aborted — DJ stopped by user", reason)
+                return {"ok": True, "skipped": True, "reason": "dj_stopped"}
             # Re-check queue depth once we hold the lock.  queue_updated events
             # fire for every track added during an enqueue batch, so multiple
             # "queue_low" ticks can pile up while a previous decision is still
@@ -424,6 +444,12 @@ class DJEngine:
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("DJ decision failed: %s", err)
                 return {"ok": False, "error": str(err)}
+
+            # Stop can also land *during* the (slow) Claude call above. Bail
+            # before we enqueue so a parked DJ never resurrects the queue.
+            if self._dj_stopped:
+                _LOGGER.debug("_run_decision(%s) aborted after decide — DJ stopped by user", reason)
+                return {"ok": True, "skipped": True, "reason": "dj_stopped"}
 
             queries = [t.query for t in decision.next_tracks]
             if seed_queries:
