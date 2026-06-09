@@ -192,6 +192,11 @@ class DJEngine:
             try:
                 queue = await self._ma.get_queue()
                 self._note_track_change(queue)
+                # Don't poll-fill while idle/stopped — only top up an active
+                # session. (_run_decision enforces the same gate, but skipping
+                # here avoids waking the decision lock every interval for nothing.)
+                if queue.get("state") not in ("playing", "paused"):
+                    continue
                 if queue.get("items_remaining", 0) < ENQUEUE_THRESHOLD:
                     await self.tick(reason="poll")
             except Exception as err:  # noqa: BLE001
@@ -311,6 +316,22 @@ class DJEngine:
             if play_option == "add":
                 try:
                     live_queue = await self._ma.get_queue()
+                    # Auto-fill only makes sense while the listener is actually
+                    # playing. When the player is idle/stopped (or the selected
+                    # player is gone, so there's no matching queue and state is
+                    # None) an empty queue reads as items_remaining=0, which would
+                    # otherwise trigger a Claude decision every poll forever even
+                    # though nobody is listening. Starting playback from cold is
+                    # the job of Start Radio / Set Vibe (the rebuild path), not the
+                    # background top-up.
+                    state = live_queue.get("state")
+                    if state not in ("playing", "paused"):
+                        _LOGGER.debug(
+                            "tick(%s) skipped — player is %s, not actively "
+                            "listening; auto-fill only runs during playback",
+                            reason, state or "idle",
+                        )
+                        return {"ok": True, "skipped": True, "reason": "not_playing"}
                     live_remaining = live_queue.get("items_remaining", 0)
                     if live_remaining >= QUEUE_TARGET // 2:
                         _LOGGER.debug(
