@@ -98,11 +98,12 @@
 
   /* ── Buttons / inputs ── */
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  input[type=text], select {
+  input[type=text], input[type=search], select {
     flex: 1; min-width: 0; background: var(--surface2); border: 1px solid var(--outline);
     color: var(--text); border-radius: var(--r-sm); padding: 12px 14px; font-size: 15px;
   }
-  input[type=text]:focus, select:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+  input[type=search] { -webkit-appearance: none; appearance: none; }
+  input[type=text]:focus, input[type=search]:focus, select:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
   select { cursor: pointer; }
   .btn {
     background: var(--primary); color: var(--on-primary); border: 0;
