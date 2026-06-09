@@ -37,6 +37,11 @@ CMD_PLAY = "players/cmd/play"
 CMD_PAUSE = "players/cmd/pause"
 CMD_SEARCH = "music/search"
 CMD_LIBRARY_TRACKS = "music/tracks/library_items"
+# Queue editing (remove + reorder upcoming items from the dashboard).
+# NOTE: verify these two strings against the running MA version if remove/move
+# ever stops working — the player_queues API has shifted historically.
+CMD_QUEUE_DELETE = "player_queues/delete_item"
+CMD_QUEUE_MOVE = "player_queues/move_item"
 # Favorites + playlist management (used for "like" and "save session").
 CMD_QUEUE_CLEAR = "player_queues/clear"
 CMD_FAVORITE_ADD = "music/favorites/add_item"
@@ -399,6 +404,44 @@ class MusicAssistantClient:
             "provider": player.get("provider"),
         }
 
+    @staticmethod
+    def _image_path(obj: dict[str, Any]) -> str | None:
+        """Best-effort album-art URL from a queue item, media item, or track."""
+        if not isinstance(obj, dict):
+            return None
+        img = obj.get("image")
+        if isinstance(img, dict) and img.get("path"):
+            return img.get("path")
+        images = (obj.get("metadata") or {}).get("images")
+        if isinstance(images, list) and images and isinstance(images[0], dict):
+            return images[0].get("path") or images[0].get("url")
+        return None
+
+    @classmethod
+    def _track_view(cls, item: dict[str, Any]) -> dict[str, Any]:
+        """Normalise a queue item / search result / media item to one shape.
+
+        Shared by search results, the Up Next panel, and now-playing so the UI
+        only ever deals with `{name, artist, uri, image, duration, item_id}`.
+        `item_id` (the queue_item_id) is only present on queue items.
+        """
+        media = item.get("media_item") or item
+        artists = media.get("artists") or []
+        first = artists[0] if artists else None
+        artist = (
+            (first.get("name") if isinstance(first, dict) else first)
+            if first
+            else media.get("artist")
+        )
+        return {
+            "name": media.get("name") or item.get("name"),
+            "artist": artist,
+            "uri": media.get("uri") or item.get("uri"),
+            "image": cls._image_path(item) or cls._image_path(media),
+            "duration": media.get("duration") or item.get("duration"),
+            "item_id": item.get("queue_item_id"),
+        }
+
     async def get_players(self) -> list[dict[str, Any]]:
         """List players known to Music Assistant (AirPlay zones, etc.)."""
         try:
@@ -517,6 +560,90 @@ class MusicAssistantClient:
             return None
         tracks = result.get("tracks") if isinstance(result, dict) else result
         return tracks[0] if tracks else None
+
+    async def search_tracks(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Search MA for tracks and return normalised view dicts for the UI."""
+        try:
+            result = await self._command(
+                CMD_SEARCH,
+                search_query=query,
+                media_types=["track"],
+                limit=limit,
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("MA search failed for %r: %s", query, err)
+            return []
+        if not result:
+            return []
+        tracks = result.get("tracks") if isinstance(result, dict) else result
+        return [self._track_view(t) for t in (tracks or []) if t.get("uri")]
+
+    async def enqueue_uri(self, uri: str, option: str = "next") -> bool:
+        """Queue an already-resolved track URI on the active queue.
+
+        `option="next"` inserts it right after the current track without
+        interrupting playback (the dashboard's search → "Play Next"). `option`
+        maps straight onto MA's play_media options (also "add" for end-of-queue).
+        """
+        queue_id = self.active_queue_id or await self.refresh_active_queue()
+        if not queue_id:
+            _LOGGER.warning("No active queue to enqueue into")
+            return False
+        try:
+            await self._command(
+                CMD_PLAY_MEDIA, queue_id=queue_id, media=uri, option=option
+            )
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Failed to enqueue %r (%s): %s", uri, option, err)
+            return False
+
+    async def remove_queue_item(self, item_id: str) -> bool:
+        """Remove an upcoming item from the active queue by its queue_item_id."""
+        queue_id = self.active_queue_id or await self.refresh_active_queue()
+        if not queue_id:
+            return False
+        try:
+            await self._command(
+                CMD_QUEUE_DELETE, queue_id=queue_id, item_id_or_index=item_id
+            )
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Failed to remove queue item %s: %s", item_id, err)
+            return False
+
+    async def move_queue_item(self, item_id: str, to_index: int) -> bool:
+        """Move an upcoming item to an absolute index in the active queue.
+
+        MA's move_item takes a relative `pos_shift`, so resolve the item's
+        current index from the queue and shift by the delta.
+        """
+        queue = await self.get_queue()
+        queue_id = queue.get("queue_id")
+        if not queue_id:
+            return False
+        items = queue.get("items") or []
+        cur = next(
+            (i for i, it in enumerate(items) if it.get("queue_item_id") == item_id),
+            None,
+        )
+        if cur is None:
+            _LOGGER.warning("Queue item %s not found for move", item_id)
+            return False
+        pos_shift = to_index - cur
+        if pos_shift == 0:
+            return True
+        try:
+            await self._command(
+                CMD_QUEUE_MOVE,
+                queue_id=queue_id,
+                queue_item_id=item_id,
+                pos_shift=pos_shift,
+            )
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Failed to move queue item %s: %s", item_id, err)
+            return False
 
     async def clear_queue(self) -> bool:
         """Clear all items from the active queue."""

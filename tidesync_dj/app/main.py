@@ -99,6 +99,20 @@ class SavePlaylistBody(BaseModel):
     name: str = ""
 
 
+class PlayNextBody(BaseModel):
+    uri: str
+    option: str = "next"
+
+
+class QueueRemoveBody(BaseModel):
+    item_id: str
+
+
+class QueueMoveBody(BaseModel):
+    item_id: str
+    to_index: int
+
+
 def _engine(request: Request) -> DJEngine:
     return request.app.state.engine
 
@@ -127,14 +141,38 @@ async def queue(request: Request):
         "queue_id": q.get("queue_id"),
         "items_remaining": q.get("items_remaining", 0),
         "current_index": q.get("current_index", 0),
-        "items": [
-            {
-                "name": (it.get("media_item") or it).get("name"),
-                "uri": (it.get("media_item") or it).get("uri"),
-            }
-            for it in q.get("items", [])
-        ],
+        "items": [ma._track_view(it) for it in q.get("items", [])],
     }
+
+
+@app.get("/search")
+async def search(request: Request, q: str = ""):
+    ma: MusicAssistantClient = request.app.state.ma
+    query = q.strip()
+    if not query:
+        return {"tracks": []}
+    return {"tracks": await ma.search_tracks(query)}
+
+
+@app.post("/queue/play_next")
+async def queue_play_next(request: Request, body: PlayNextBody):
+    ma: MusicAssistantClient = request.app.state.ma
+    ok = await ma.enqueue_uri(body.uri, body.option)
+    return JSONResponse({"ok": ok}, status_code=200 if ok else 502)
+
+
+@app.post("/queue/remove")
+async def queue_remove(request: Request, body: QueueRemoveBody):
+    ma: MusicAssistantClient = request.app.state.ma
+    ok = await ma.remove_queue_item(body.item_id)
+    return JSONResponse({"ok": ok}, status_code=200 if ok else 502)
+
+
+@app.post("/queue/move")
+async def queue_move(request: Request, body: QueueMoveBody):
+    ma: MusicAssistantClient = request.app.state.ma
+    ok = await ma.move_queue_item(body.item_id, body.to_index)
+    return JSONResponse({"ok": ok}, status_code=200 if ok else 502)
 
 
 @app.post("/tick")
