@@ -32,7 +32,11 @@
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg); color: var(--text); line-height: 1.45;
     -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;  /* we provide our own :active feedback */
   }
+  /* Interactive controls: instant taps (no 300ms double-tap-zoom delay). */
+  button, .ctrl, .navbtn, .rowbtn, .drag-handle, .person, .person-add,
+  select, input { touch-action: manipulation; }
   body { height: 100dvh; overflow: hidden; }
   .icon { width: 24px; height: 24px; fill: currentColor; flex: 0 0 auto; }
   .icon.sm { width: 18px; height: 18px; }
@@ -48,7 +52,8 @@
 
   .panel {
     display: none; flex-direction: column; min-height: 0;
-    height: 100%; overflow-y: auto;
+    height: 100%; overflow-y: auto; overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
   }
   .panel.active { display: flex; }
@@ -153,15 +158,24 @@
   .ctrl {
     background: var(--surface2); color: var(--text); border: 1px solid var(--outline);
     border-radius: 50%; width: 56px; height: 56px; display: flex; align-items: center;
-    justify-content: center; cursor: pointer; transition: background .15s, color .15s, border-color .15s;
+    justify-content: center; cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s, transform .08s;
   }
-  .ctrl:hover:not(:disabled) { background: var(--surface3); }
+  .ctrl:active:not(:disabled) { transform: scale(.93); }
   .ctrl:disabled { opacity: .4; cursor: default; }
   .ctrl.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); width: 64px; height: 64px; }
-  .ctrl.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--primary); }
-  .ctrl.like:hover:not(:disabled) { color: var(--secondary); border-color: var(--secondary); }
   .ctrl.like.on { color: var(--secondary); border-color: var(--secondary); }
-  .ctrl.block:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+  /* Momentary tint on press gives touch users like/block feedback. */
+  .ctrl.like:active:not(:disabled) { color: var(--secondary); border-color: var(--secondary); }
+  .ctrl.block:active:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+  /* Hover tints only on true hover devices — on touch :hover sticks after a tap,
+     which would leave Like/Block looking permanently active. */
+  @media (hover: hover) {
+    .ctrl:hover:not(:disabled) { background: var(--surface3); }
+    .ctrl.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--primary); }
+    .ctrl.like:hover:not(:disabled) { color: var(--secondary); border-color: var(--secondary); }
+    .ctrl.block:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+  }
   .ctrl-msg { text-align: center; color: var(--muted); font-size: 13px; min-height: 18px; flex: 0 0 auto; }
   .np-center { display: flex; flex-direction: column; align-items: center; }
 
@@ -182,15 +196,22 @@
   .trackinfo .t { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .trackinfo .a { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rowbtn {
-    background: none; border: 0; color: var(--muted); cursor: pointer; padding: 8px;
-    border-radius: 8px; display: flex; align-items: center; transition: color .15s, background .15s;
-    flex: 0 0 auto;
+    background: none; border: 0; color: var(--muted); cursor: pointer;
+    min-width: 44px; min-height: 44px; padding: 8px;
+    border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    transition: color .15s, background .15s; flex: 0 0 auto;
   }
-  .rowbtn:hover { background: var(--surface3); color: var(--text); }
-  .rowbtn.remove:hover { color: var(--danger); }
+  .rowbtn:hover, .rowbtn:active { background: var(--surface3); color: var(--text); }
+  .rowbtn.remove:hover, .rowbtn.remove:active { color: var(--danger); }
   .rowbtn.next { color: var(--primary); }
-  .drag-handle { color: var(--muted); cursor: grab; touch-action: none; padding: 8px 2px; display: flex; flex: 0 0 auto; }
-  .drag-handle:active { cursor: grabbing; }
+  /* Drag handle needs a generous finger-sized grab area; touch-action:none so
+     dragging it never scrolls the list. */
+  .drag-handle {
+    color: var(--muted); cursor: grab; touch-action: none;
+    min-width: 40px; min-height: 44px; padding: 8px 6px;
+    display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  }
+  .drag-handle:active { cursor: grabbing; color: var(--text); }
   .rowactions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
 
   .empty { color: var(--muted); font-size: 13px; padding: 10px 2px; }
@@ -208,17 +229,17 @@
   #peopleBtns { display: inline-flex; gap: 8px; flex-wrap: wrap; }
   .person {
     background: var(--surface2); color: var(--text); border: 1px solid var(--outline);
-    border-radius: var(--r-full); padding: 8px 16px; font-size: 14px; font-weight: 600;
-    cursor: pointer; transition: all .15s; line-height: 1;
+    border-radius: var(--r-full); padding: 11px 18px; min-height: 44px; font-size: 14px;
+    font-weight: 600; cursor: pointer; transition: all .15s; line-height: 1;
   }
-  .person:hover { background: var(--surface3); }
+  .person:hover, .person:active { background: var(--surface3); }
   .person.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
   .person-add {
     background: var(--surface2); color: var(--muted); border: 1px solid var(--outline);
-    border-radius: var(--r-full); width: 36px; height: 36px; font-size: 18px; cursor: pointer;
+    border-radius: var(--r-full); width: 44px; height: 44px; font-size: 18px; cursor: pointer;
     display: inline-flex; align-items: center; justify-content: center;
   }
-  .person-add:hover { color: var(--text); background: var(--surface3); }
+  .person-add:hover, .person-add:active { color: var(--text); background: var(--surface3); }
 
   /* ── Decision log ── */
   .log { display: grid; gap: 10px; }
@@ -257,7 +278,7 @@
     .panel { display: flex !important; padding: 0; height: auto; min-height: 0; }
     /* col 1 = Now Playing + Search; col 2 = Up Next + Settings.
        Each column is its own scroll. */
-    #g-left, #g-right { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+    #g-left, #g-right { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
     #g-left > .panel, #g-right > .panel { margin-bottom: var(--gap); }
     #g-left > .panel:last-child, #g-right > .panel:last-child { margin-bottom: 0; }
     .panel#p-np {
@@ -341,7 +362,9 @@
         <div class="panel-title">Search</div>
         <div class="search-bar">
           <svg class="icon"><use href="#i-search"/></svg>
-          <input type="text" id="searchInput" placeholder="Search a song to play next…" autocomplete="off" />
+          <input type="search" id="searchInput" placeholder="Search a song to play next…"
+                 autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+                 inputmode="search" enterkeyhint="search" />
         </div>
         <div class="card">
           <div class="tracklist" id="searchResults"><div class="empty" id="searchEmpty">Search to add a song as “next up”.</div></div>
@@ -632,14 +655,59 @@
     refreshQueue();
   });
 
-  // Pointer-based drag reorder (works on mouse + touch)
+  // Pointer-based drag reorder (works on mouse + touch). Drags the row under
+  // the finger, auto-scrolls when held near an edge so a long queue is fully
+  // reorderable on a phone, and resets cleanly if the gesture is cancelled.
   (function enableReorder() {
     const list = document.getElementById("queueList");
-    let dragRow = null, dragId = null;
+    let dragRow = null, dragId = null, scroller = null, raf = null, lastY = 0;
+
+    function findScroller(el) {
+      for (let n = el.parentElement; n; n = n.parentElement) {
+        const oy = getComputedStyle(n).overflowY;
+        if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight) return n;
+      }
+      return document.scrollingElement || document.documentElement;
+    }
     function rowUnder(y) {
       return [...list.querySelectorAll(".trackrow")].find(r => {
         const b = r.getBoundingClientRect();
         return y >= b.top && y <= b.bottom;
+      });
+    }
+    function reposition(y) {
+      const over = rowUnder(y);
+      if (!over || over === dragRow) return;
+      const b = over.getBoundingClientRect();
+      const before = y < b.top + b.height / 2;
+      list.insertBefore(dragRow, before ? over : over.nextSibling);
+    }
+    function tick() {
+      if (!dragRow) { raf = null; return; }
+      if (scroller) {
+        const b = scroller.getBoundingClientRect();
+        const EDGE = 56, STEP = 12;
+        if (lastY < b.top + EDGE) scroller.scrollTop -= STEP;
+        else if (lastY > b.bottom - EDGE) scroller.scrollTop += STEP;
+      }
+      reposition(lastY);
+      raf = requestAnimationFrame(tick);
+    }
+    function endDrag(commit) {
+      if (!dragRow) return;
+      dragRow.classList.remove("dragging");
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+      const id = dragId, row = dragRow;
+      dragRow = null; dragId = null; scroller = null;
+      if (!commit) { refreshQueue(); return; }
+      const rows = [...list.querySelectorAll(".trackrow")];
+      const pos = rows.indexOf(row);
+      const firstIndex = queueItems.length ? queueItems[0].qindex : 1;
+      const toIndex = firstIndex + pos;
+      postJSON("/queue/move", { item_id: id, to_index: toIndex }).then(r => {
+        if (!r.ok) toast(r.error || "Couldn't reorder");
+        refreshQueue();
       });
     }
     list.addEventListener("pointerdown", (e) => {
@@ -647,33 +715,20 @@
       if (!handle) return;
       dragRow = handle.closest(".trackrow");
       dragId = dragRow.dataset.itemId;
+      scroller = findScroller(list);
+      lastY = e.clientY;
       dragRow.classList.add("dragging");
       handle.setPointerCapture(e.pointerId);
       e.preventDefault();
     });
     list.addEventListener("pointermove", (e) => {
       if (!dragRow) return;
-      const over = rowUnder(e.clientY);
-      if (!over || over === dragRow) return;
-      const b = over.getBoundingClientRect();
-      const before = e.clientY < b.top + b.height / 2;
-      list.insertBefore(dragRow, before ? over : over.nextSibling);
+      lastY = e.clientY;
+      reposition(e.clientY);
+      if (!raf) raf = requestAnimationFrame(tick);
     });
-    list.addEventListener("pointerup", async () => {
-      if (!dragRow) return;
-      dragRow.classList.remove("dragging");
-      const id = dragId;
-      // New absolute index = qindex of the row now directly above, +1
-      // (or the first upcoming slot if dropped at the very top).
-      const rows = [...list.querySelectorAll(".trackrow")];
-      const pos = rows.indexOf(dragRow);
-      const firstIndex = queueItems.length ? queueItems[0].qindex : 1;
-      const toIndex = firstIndex + pos;
-      dragRow = null; dragId = null;
-      const r = await postJSON("/queue/move", { item_id: id, to_index: toIndex });
-      if (!r.ok) toast(r.error || "Couldn't reorder");
-      refreshQueue();
-    });
+    list.addEventListener("pointerup", () => endDrag(true));
+    list.addEventListener("pointercancel", () => endDrag(false));
   })();
 
   // ── Search ──

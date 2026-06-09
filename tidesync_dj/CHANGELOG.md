@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.4
+
+### Touch-friendly UI
+- Bigger tap targets (≥44px) for the queue remove button, **drag handle**, and
+  the people switcher.
+- Drag-to-reorder now **auto-scrolls** when you hold a track near the top/bottom
+  edge, so a long queue is fully reorderable on a phone; an interrupted drag now
+  resets cleanly.
+- Press feedback on every control (taps no longer feel dead); the grey tap-flash
+  is suppressed and Like/Block no longer "stick" tinted after a tap on touch.
+- Search field uses a proper search keyboard (no autocorrect mangling titles,
+  with a "Search" enter key).
+- Scroll panels no longer rubber-band the whole page / trigger pull-to-refresh.
+
 ## 0.7.3
 
 ### Security hardening
