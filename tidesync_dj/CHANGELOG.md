@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.3
+
+### Security hardening
+- Pin third-party loggers (`anthropic`, `httpx`, `httpcore`, `urllib3`,
+  `ytmusicapi`) to `WARNING` so their DEBUG request dumps can no longer write the
+  Claude request payload — or auth headers — into the add-on log. The app's own
+  modules still log at DEBUG.
+- Constrain the `/queue/play_next` `option` field to `next`/`add`.
+
+### Docs
+- README + DOCS updated for the responsive UI, Search, and the Up Next queue
+  (remove / reorder), and the API table now lists the search/queue endpoints.
+
 ## 0.7.2
 
 - Fix: the pause button now correctly turns into a **play** button when

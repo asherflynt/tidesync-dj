@@ -34,19 +34,29 @@ You need:
    "Waiting for Music Assistant" banner clears once it connects and logs in;
    if login fails, the banner shows the exact reason.
 
-## Using it
+The dashboard resizes to your screen: on a phone you get a bottom tab bar
+(**Now Playing / Up Next / Search / Settings**); on a tablet or computer those
+panels are shown side by side. The **Playback**, **Set Vibe**, **Listening**,
+seed, and save controls all live under **Settings**.
 
-- In the **Playback** card, pick a Music Assistant player (your AirPlay zone,
+- In **Settings → Playback**, pick a Music Assistant player (your AirPlay zone,
   etc.) and click **▶ Start Radio**. TideSync asks Claude for an opening set
   from your taste profile, vibe, and time of day, plays it on that player, then
   keeps the queue topped up automatically as it runs low.
 - (Or, if you start playback yourself in Music Assistant, TideSync will take
   over topping up the queue once it runs low.)
-- Type a **vibe** ("late night focus", "high energy cooking") in the panel and
-  click **Set Vibe** to steer the mood.
-- Click **Nudge DJ** to force a decision immediately.
-- Click **♥ Like in Tidal** on the Now Playing card to favorite the current
-  track (synced to Tidal through Music Assistant).
+- **Up Next** shows what's coming. Tap the **×** to remove a track, or drag the
+  handle to reorder the queue.
+- **Search** lets you find any song and queue it without breaking the flow:
+  tap the **play-next** button to slot it right after the current track, or
+  **+** to add it to the end of the queue.
+- In **Settings → Set Vibe**, type a vibe ("late night focus", "high energy
+  cooking") and click **Set Vibe** to steer the mood; **Nudge DJ** forces a
+  decision immediately.
+- Use the **Listening** switcher (Mom / Dad / Kids, plus **＋** to add people) to
+  choose whose taste drives the DJ.
+- Click **♥** (Like) on the Now Playing card to favorite the current track
+  (synced to Tidal through Music Assistant), or **🚫** to block it for 30 days.
 - Use **Save Session as a Tidal Playlist** to save everything you've heard this
   session to a new Tidal playlist.
 - The **decision log** shows Claude's reasoning for each pick.

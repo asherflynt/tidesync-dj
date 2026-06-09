@@ -63,16 +63,50 @@ Secrets are managed by Home Assistant — no `.env` file. Options are read from
 
 ## Security & privacy
 
-- Your **Anthropic API key** is stored only in Home Assistant's add-on options
-  (`/data/options.json`). It is **never** logged, returned by any API endpoint,
-  shown in the dashboard, or committed to this repository.
+- Your **Anthropic API key** (and Music Assistant credentials) are stored only
+  in Home Assistant's add-on options (`/data/options.json`, password-masked in
+  the UI). They are **never** logged, returned by any API endpoint, shown in the
+  dashboard, or committed to this repository. Third-party HTTP/SDK loggers
+  (`anthropic`, `httpx`, `httpcore`) are pinned to `WARNING` so their DEBUG
+  request dumps can't leak payloads or headers into the add-on log.
 - The web UI is served **only through authenticated Home Assistant ingress** —
   there is no `ports:` mapping, so the service is not exposed on the host network.
 - The add-on requests **least privilege**: only `homeassistant_api` (Core REST
   API for reading states and firing the `tidesync_dj_decision` event). It does
   not request Supervisor (`hassio_api`), host, or device access.
+- All control endpoints take simple typed parameters and are forwarded to Music
+  Assistant; there is no shell, SQL, or filesystem path built from request input.
+  Listener names are slugified to `[a-z0-9-]` before becoming filenames, and the
+  YouTube seed accepts only a playlist **id** (no arbitrary URL is fetched).
+- Dynamic values rendered in the dashboard are HTML-escaped to prevent injection
+  from track/artist names or Claude's notes.
 - Runtime data files (`options.json`, `taste_profile.json`, `data/`) are
   `.gitignore`d so they can't be accidentally committed.
+
+## Dashboard
+
+The dashboard is a single self-contained page (no external fonts, icons, or
+CDNs) that **adapts to screen size** so it's usable on a phone, a tablet, or a
+wall display:
+
+- **Phone** — a bottom tab bar: **Now Playing / Up Next / Search / Settings**.
+- **Tablet / desktop** — a multi-column layout (Now Playing + Search on the
+  left, Up Next and Settings alongside) with no tab switching.
+
+Highlights:
+
+- **Now Playing** — full, uncropped album art, transport controls, like/block.
+- **Up Next** — the live queue with **remove** and **drag-to-reorder** (works
+  with both mouse and touch).
+- **Search** — find any track in Music Assistant and add it as **next up**
+  (plays right after the current track without interrupting it) or append it to
+  the end of the queue.
+- **Settings** — player selection, Start Radio, vibe/nudge, the **Listening**
+  (per-person) switcher, session stats, taste seeding, save-to-Tidal, and the
+  DJ decision log.
+
+The goal is to run the whole session here without opening the Music Assistant
+UI (except to build your own playlists).
 
 ## API (served under ingress)
 
@@ -81,15 +115,22 @@ Secrets are managed by Home Assistant — no `.env` file. Options are read from
 | `GET`  | `/` | Ingress dashboard |
 | `GET`  | `/status` | DJ state, now playing, active vibe, stats |
 | `POST` | `/vibe` | Set vibe: `{"prompt": "late night focus"}` |
-| `GET`  | `/queue` | Current MA queue |
+| `GET`  | `/queue` | Upcoming queue items (name, artist, art, `item_id`) |
+| `GET`  | `/search?q=` | Search Music Assistant for tracks to add |
+| `POST` | `/queue/play_next` | Insert a track after the current one: `{"uri": "...", "option": "next"\|"add"}` |
+| `POST` | `/queue/remove` | Remove an upcoming item: `{"item_id": "..."}` |
+| `POST` | `/queue/move` | Reorder an item: `{"item_id": "...", "to_index": N}` |
 | `GET`  | `/players` | Available Music Assistant players |
 | `POST` | `/players/select` | Choose a player: `{"player_id": "..."}` |
 | `POST` | `/start_radio` | Start playback with a fresh AI-picked set |
 | `POST` | `/seed` | Seed taste from a YouTube Music playlist: `{"playlist": "<url>"}` |
 | `POST` | `/like` | Like the current track in Tidal |
+| `POST` | `/block` | Block the current track for 30 days |
+| `POST` | `/nudge` | Force a fresh decision immediately |
 | `POST` | `/save_playlist` | Save the session's tracks as a Tidal playlist: `{"name": "..."}` |
 | `POST` | `/tick` | Manually trigger a decision cycle |
 | `GET`  | `/history` | Recent DJ decisions |
+| `GET`/`POST` | `/users`, `/users/select`, `/users/add` | List/switch/add listeners |
 
 ### Like tracks & save the session to Tidal
 

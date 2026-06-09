@@ -23,8 +23,13 @@ from taste_profile import TasteProfile
 from user_memory import UserStore
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-# websockets internal debug is extremely noisy — suppress it.
-logging.getLogger("websockets").setLevel(logging.WARNING)
+# Keep the app's own modules at DEBUG, but silence third-party libraries whose
+# DEBUG output is noisy AND sensitive: the anthropic SDK + httpx/httpcore log
+# full request payloads (the listener context we send Claude) and can surface
+# request headers — i.e. the API key. Quieting them to WARNING keeps that data
+# out of the add-on log, matching the "never logged" promise in the README.
+for _noisy in ("websockets", "anthropic", "httpx", "httpcore", "urllib3", "ytmusicapi"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 _LOGGER = logging.getLogger("tidesync")
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -157,7 +162,9 @@ async def search(request: Request, q: str = ""):
 @app.post("/queue/play_next")
 async def queue_play_next(request: Request, body: PlayNextBody):
     ma: MusicAssistantClient = request.app.state.ma
-    ok = await ma.enqueue_uri(body.uri, body.option)
+    # Only the two options the UI offers; anything else falls back to "next".
+    option = body.option if body.option in ("next", "add") else "next"
+    ok = await ma.enqueue_uri(body.uri, option)
     return JSONResponse({"ok": ok}, status_code=200 if ok else 502)
 
 
