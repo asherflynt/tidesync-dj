@@ -230,6 +230,13 @@ async def playpause(request: Request):
     return JSONResponse(result)
 
 
+@app.post("/stop")
+async def stop(request: Request):
+    """Stop playback, clear the queue, and park the auto-DJ until restarted."""
+    result = await _engine(request).stop()
+    return JSONResponse(result)
+
+
 @app.post("/pause")
 async def pause(request: Request):
     # Kept for back-compat; delegates to the toggle so a paused player resumes.

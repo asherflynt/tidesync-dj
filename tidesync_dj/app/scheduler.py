@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from collections import deque
 from datetime import datetime
@@ -29,6 +30,7 @@ _LOGGER = logging.getLogger(__name__)
 
 ENQUEUE_THRESHOLD = 5   # tick when fewer than this many tracks remain
 QUEUE_TARGET = 30       # how many tracks to request from Claude per decision
+SEED_PLAYLIST_SAMPLE = 15  # max playlist tracks woven into the opening seed queue
 
 
 def _time_of_day(now: datetime | None = None) -> str:
@@ -123,6 +125,11 @@ class DJEngine:
         self._tick_lock = asyncio.Lock()
         self._pending_tick: asyncio.Task | None = None  # debounce queue_updated flood
         self._enqueuing = False  # True while _run_decision is adding tracks to MA
+        # User pressed Stop: playback halted, queue cleared, and the auto-DJ is
+        # parked until the user explicitly restarts it (Start Radio / Set Vibe /
+        # Nudge / person switch / seed all clear this). Distinct from _stopping,
+        # which is app shutdown.
+        self._dj_stopped = False
         self._tasks: list[asyncio.Task] = []
         self._stopping = False
 
@@ -200,6 +207,8 @@ class DJEngine:
                 return
 
         _LOGGER.debug("queue_updated: items_remaining=%s enqueuing=%s", remaining, self._enqueuing)
+        if self._dj_stopped:
+            return  # user pressed Stop — don't auto-refill until they restart
         if self._enqueuing:
             return  # suppress ticks during our own enqueue batch
         if remaining < ENQUEUE_THRESHOLD:
@@ -336,14 +345,44 @@ class DJEngine:
             )
         return ctx
 
+    @staticmethod
+    def _interleave(primary: list[str], secondary: list[str]) -> list[str]:
+        """Merge two lists, spreading each evenly across the result.
+
+        Items are pulled by fractional position so neither list clumps: with 3
+        primary and 9 secondary, the 3 are spaced ~every 4th slot. `primary`
+        leads on ties, so the first emitted item is primary[0].
+        """
+        primary, secondary = list(primary), list(secondary)
+        if not primary:
+            return secondary
+        if not secondary:
+            return primary
+        merged: list[str] = []
+        pi = si = 0
+        while pi < len(primary) or si < len(secondary):
+            pf = pi / len(primary) if pi < len(primary) else 2.0
+            sf = si / len(secondary) if si < len(secondary) else 2.0
+            if pf <= sf:
+                merged.append(primary[pi]); pi += 1
+            else:
+                merged.append(secondary[si]); si += 1
+        return merged
+
     async def _run_decision(
         self,
         reason: str,
         play_option: str = "add",
         fresh_start: bool = False,
         seed_label: str | None = None,
+        seed_queries: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Shared decision path used by tick() and start_radio()."""
+        """Shared decision path used by tick() and start_radio().
+
+        `seed_queries` are concrete tracks (e.g. from a YouTube Music playlist)
+        woven in among Claude's discovery picks so the listener's own songs
+        actually play alongside the new ones.
+        """
         async with self._tick_lock:
             # Re-check queue depth once we hold the lock.  queue_updated events
             # fire for every track added during an enqueue batch, so multiple
@@ -387,7 +426,13 @@ class DJEngine:
                 return {"ok": False, "error": str(err)}
 
             queries = [t.query for t in decision.next_tracks]
-            blocked = self._users.active.blocked_uris()
+            if seed_queries:
+                # Weave the listener's playlist tracks evenly through the
+                # discovery picks; seed tracks lead so a familiar song starts.
+                queries = self._interleave(seed_queries, queries)
+            # Never repeat a track already heard/queued this session: drop the
+            # active person's blocks plus everything seen so far this session.
+            blocked = self._users.active.blocked_uris() | set(self._session_uris)
             self._enqueuing = True
             try:
                 enqueued = await self._ma.enqueue_queries(
@@ -442,17 +487,42 @@ class DJEngine:
             return {"ok": True, "decision": entry}
 
     async def tick(self, reason: str = "manual") -> dict[str, Any]:
+        if self._dj_stopped:
+            # Parked by the user's Stop — no auto-fill until they restart.
+            return {"ok": True, "skipped": True, "reason": "dj_stopped"}
         # Carry the active radio seed (if any) into every auto-refill so the
         # station keeps building around the hand-picked song.
         return await self._run_decision(
             reason=reason, play_option="add", seed_label=self._radio_seed_label
         )
 
+    async def stop(self) -> dict[str, Any]:
+        """Stop playback, clear the queue, and park the auto-DJ.
+
+        Nothing will be queued again until the user explicitly restarts playback
+        (Start Radio / Set Vibe / Nudge / person switch / a seed) — each of those
+        goes through `_rebuild`, which lifts the parked flag.
+        """
+        self._dj_stopped = True
+        self._radio_seed_label = None
+        # Cancel any in-flight auto-fill so a debounced tick can't refill after
+        # we clear the queue.
+        if self._pending_tick and not self._pending_tick.done():
+            self._pending_tick.cancel()
+        stopped = await self._ma.stop()
+        await self._ma.clear_queue()
+        # Re-baseline track tracking so a later restart starts clean.
+        self._current_track_id = None
+        self._last_current = None
+        _LOGGER.info("DJ stopped by user — playback halted and queue cleared")
+        return {"ok": True, "stopped": stopped}
+
     async def _rebuild(
         self,
         reason: str,
         seed_uri: str | None = None,
         seed_label: str | None = None,
+        seed_queries: list[str] | None = None,
     ) -> dict[str, Any]:
         """Clear the queue and start a brand-new set, cutting to it immediately.
 
@@ -462,8 +532,12 @@ class DJEngine:
 
         When `seed_uri` is given the listener hand-picked the opening track: it
         plays immediately and Claude appends a station around it, rather than
-        Claude choosing the opener itself.
+        Claude choosing the opener itself. `seed_queries` (e.g. a seeded
+        playlist) are instead woven among Claude's picks in the opening set.
         """
+        # Any rebuild is a user-initiated restart — lift a prior Stop so the
+        # auto-DJ resumes topping up the queue.
+        self._dj_stopped = False
         # If MA just dropped and is reconnecting, wait up to 15s rather than
         # immediately failing with a misleading "tracks not found" error.
         if not self._ma.is_connected:
@@ -503,7 +577,8 @@ class DJEngine:
         # radio) ends the seeded station — release the seed.
         self._radio_seed_label = None
         return await self._run_decision(
-            reason=reason, play_option="play", fresh_start=True
+            reason=reason, play_option="play", fresh_start=True,
+            seed_queries=seed_queries,
         )
 
     async def start_radio(self) -> dict[str, Any]:
@@ -568,18 +643,17 @@ class DJEngine:
         return {"ok": ok}
 
     async def toggle_playback(self) -> dict[str, Any]:
-        """Toggle play/pause based on the live player state.
+        """Toggle play/pause using MA's atomic play_pause command.
 
-        Pausing alone left no way to resume — the transport button always sent
-        pause. Here we read the actual state and send the opposite command,
-        returning the intended new state so the UI icon can update immediately.
+        The previous read-then-decide approach raced MA's eventually-consistent
+        player state: a stale "playing" read just after a pause would send pause
+        again (or vice versa), so resume appeared to do nothing. MA's play_pause
+        flips based on its own authoritative state in one call, which also
+        resumes a paused queue more reliably than a bare play. The UI updates its
+        icon optimistically, so we don't need to return the resulting state.
         """
-        state = await self._ma.get_play_state()
-        if state == "playing":
-            ok = await self._ma.pause()
-            return {"ok": ok, "player_state": "paused"}
-        ok = await self._ma.ensure_playing()
-        return {"ok": ok, "player_state": "playing"}
+        ok = await self._ma.play_pause()
+        return {"ok": ok}
 
     async def skip(self) -> dict[str, Any]:
         """Skip the current track (the ONLY thing that records a skip).
@@ -629,8 +703,17 @@ class DJEngine:
     # ------------------------------------------------------------------ #
     # Taste seeding
     # ------------------------------------------------------------------ #
-    async def seed_from_playlist(self, playlist: str) -> dict[str, Any]:
-        """Seed the taste profile from a public YouTube Music playlist."""
+    async def seed_from_playlist(
+        self, playlist: str, start: bool = True
+    ) -> dict[str, Any]:
+        """Seed the taste profile from a public YouTube Music playlist.
+
+        When `start` is set (the default), immediately kick off a fresh queue
+        built from the just-updated taste profile, so one button both learns the
+        playlist's taste and starts playing music that reflects it. The taste
+        seed is reported as successful even if playback can't start (e.g. no MA
+        player) — the profile update still happened.
+        """
         from yt_seed import fetch_playlist_tracks
 
         try:
@@ -649,7 +732,39 @@ class DJEngine:
                 "error": f"Fetched {len(tracks)} tracks, but Claude analysis "
                 f"failed: {err}",
             }
-        return {"ok": True, "track_count": len(tracks), "summary": summary}
+
+        result = {"ok": True, "track_count": len(tracks), "summary": summary}
+        if start:
+            # Start a fresh set from the just-refreshed taste profile, with a
+            # shuffled sample of the actual playlist tracks woven in among
+            # Claude's discoveries so the listener's own songs play too.
+            seed_queries = self._playlist_seed_queries(tracks)
+            radio = await self._rebuild("seed_taste", seed_queries=seed_queries)
+            result["radio_started"] = bool(radio.get("ok"))
+            if radio.get("ok"):
+                result["enqueued"] = (radio.get("decision") or {}).get("enqueued", 0)
+            else:
+                result["radio_error"] = radio.get("error")
+        return result
+
+    @staticmethod
+    def _playlist_seed_queries(tracks: list[dict[str, Any]]) -> list[str]:
+        """Pick a shuffled sample of playlist tracks as MA search queries.
+
+        Capped at SEED_PLAYLIST_SAMPLE so a 200-track playlist doesn't swamp the
+        opening set; formatted "Artist Title" for a reliable Music Assistant
+        search match.
+        """
+        sample = list(tracks)
+        random.shuffle(sample)
+        queries: list[str] = []
+        for t in sample[:SEED_PLAYLIST_SAMPLE]:
+            name = (t.get("name") or "").strip()
+            if not name:
+                continue
+            artist = (t.get("artist") or "").strip()
+            queries.append(f"{artist} {name}".strip())
+        return queries
 
     # ------------------------------------------------------------------ #
     # Like a track / save the session as a playlist (any MA music source)
@@ -754,6 +869,7 @@ class DJEngine:
             "now_playing": _track_label(current_item),
             "album_art": album_art,
             "player_state": player_state,  # "playing" | "paused" | "idle" | None
+            "dj_stopped": self._dj_stopped,  # user pressed Stop; auto-DJ parked
             "vibe": self.vibe_prompt or None,
             "time_of_day": _time_of_day(),
             "items_remaining": queue.get("items_remaining", 0),

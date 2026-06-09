@@ -1,5 +1,82 @@
 # Changelog
 
+## 1.0.0
+
+First stable release. Highlights since 0.6:
+
+- **Responsive Material dashboard** — phone tabs, tablet 2-column, desktop
+  3-column; resizable left panel with album art that fits the viewport and an
+  integrated Search.
+- **Reliable transport** — atomic play/pause with instant (optimistic) UI, plus
+  a new **Stop** button that halts playback, clears the queue, and parks the
+  auto-DJ until you restart it.
+- **Seed & Play** — a public YouTube Music playlist seeds the taste profile and
+  starts a queue that mixes the playlist's own tracks among fresh discoveries.
+- **No repeated tracks within a session.**
+- Start-radio-from-a-seed-song, Up Next queue (remove / drag-reorder),
+  per-person memory, and save-session-as-a-Tidal-playlist.
+
+See the per-version notes below for the full detail.
+
+## 0.8.6
+
+### Stop button
+- New **Stop** button (under Start Radio) halts playback, clears the queue, and
+  parks the auto-DJ so it won't add any more songs. It stays parked until you
+  explicitly restart — Start Radio, Set Vibe, Nudge, a person switch, or seeding
+  all resume it. While stopped, Now Playing shows "Stopped".
+- Backed by a new `/stop` endpoint and MA's `players/cmd/stop`; the parked state
+  gates every auto-fill path (queue-low events, the poll loop, and manual ticks).
+
+## 0.8.5
+
+### No repeated tracks within a session
+- Every decision now filters out tracks already heard or queued this session (the
+  existing `session_uris` set is fed into the enqueue block list alongside the
+  person's blocks), so the DJ never replays a song until the add-on restarts —
+  even across Start Radio / Nudge / vibe changes.
+- `enqueue_queries` also dedupes within a single batch, so two queries that
+  resolve to the same track (e.g. a seeded playlist song Claude also picked) only
+  queue once.
+
+## 0.8.4
+
+### Playlist songs actually play in the seeded queue
+- Seeding now weaves a shuffled sample of the playlist's own tracks (up to 15,
+  resolved to Tidal via Music Assistant search) **among** Claude's discovery
+  picks in the opening queue — so you hear songs from the playlist you uploaded,
+  not just music "in their style". A familiar track leads off the set, and the
+  rest are spread evenly through the discoveries.
+
+## 0.8.3
+
+### Seed now starts a queue
+- The **Seed Taste from YouTube Music** button (now "Seed & Play") seeds the
+  taste profile from the playlist *and* immediately starts a fresh queue built
+  from that just-updated taste — one action to learn the playlist and start
+  music that reflects it. The taste seed still counts as successful if playback
+  can't start (e.g. no MA player); the message reports playback separately.
+
+## 0.8.2
+
+### Reliable play/pause
+- The transport button now toggles via MA's atomic `players/cmd/play_pause`
+  instead of reading the state and sending the opposite command. The old path
+  raced MA's eventually-consistent player state — a stale read could pause an
+  already-paused player, so **resume appeared to do nothing**. The atomic toggle
+  also resumes a paused queue more reliably than a bare play.
+- The icon now flips **optimistically** on click for instant feedback, then
+  reconciles after MA settles (the 5s status poll is the backstop), so it no
+  longer takes seconds to switch from pause to play.
+
+### Left-panel layout + heart icon
+- On tablet/desktop the left column no longer overflows on short screens: the
+  album art resizes to fit the viewport (square, capped at 440px), and Search is
+  part of the same column with only its results list scrolling internally —
+  rather than the whole column scrolling as one.
+- Fixed the lopsided **like** heart: the SVG path is now symmetric (centered in
+  its viewBox).
+
 ## 0.7.5
 
 ### Start radio from a seed song

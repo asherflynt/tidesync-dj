@@ -115,6 +115,8 @@
   .btn:active:not(:disabled) { transform: translateY(1px); }
   .btn:disabled { opacity: .45; cursor: default; }
   .btn.ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--outline); }
+  .btn.danger { background: var(--surface2); color: var(--danger); border: 1px solid var(--outline); }
+  .btn.danger:hover:not(:disabled) { filter: none; border-color: var(--danger); }
   .btn.block { width: 100%; justify-content: center; }
   .hint { color: var(--muted); font-size: 13px; }
   .hint.block { display: block; margin-top: 8px; }
@@ -278,16 +280,29 @@
       grid-template-rows: 1fr; min-height: 0;
     }
     .panel { display: flex !important; padding: 0; height: auto; min-height: 0; }
-    /* col 1 = Now Playing + Search; col 2 = Up Next + Settings.
-       Each column is its own scroll. */
-    #g-left, #g-right { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+    /* col 1 = Now Playing + Search; col 2 = Up Next + Settings. */
+    #g-left, #g-right { display: flex; flex-direction: column; min-height: 0; overscroll-behavior: contain; }
+    /* Left column is a fixed-height frame: its children divide the viewport
+       height (art shrinks, results scroll) instead of the column overflowing. */
+    #g-left { overflow: hidden; }
+    #g-right { overflow-y: auto; }
     #g-left > .panel, #g-right > .panel { margin-bottom: var(--gap); }
     #g-left > .panel:last-child, #g-right > .panel:last-child { margin-bottom: 0; }
     .panel#p-np {
       background: var(--surface); border: 1px solid var(--outline);
       border-radius: var(--r-lg); padding: 22px; box-shadow: var(--e2);
-      justify-content: flex-start; flex: 0 0 auto;
+      justify-content: flex-start; flex: 0 0 auto; min-height: 0; overflow: hidden;
     }
+    /* The album art resizes with the viewport — a square capped by the smaller
+       of the column width, 40% of viewport height, and 440px. This keeps the
+       Now Playing block short enough to leave Search visible on short screens,
+       and grows the art back toward its 440px cap on tall ones. */
+    .panel#p-np .art-wrap {
+      width: min(100%, 40vh, 440px); height: auto; aspect-ratio: 1 / 1;
+    }
+    /* Search fills the height left under Now Playing; only its results scroll. */
+    .panel#p-search { flex: 1 1 auto; min-height: 0; }
+    .panel#p-search .card { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     .toast { bottom: 28px; }
   }
 
@@ -308,8 +323,9 @@
   <symbol id="i-settings" viewBox="0 0 24 24"><path d="M19.14 12.94a7.49 7.49 0 000-1.88l2.03-1.58a.5.5 0 00.12-.64l-1.92-3.32a.5.5 0 00-.6-.22l-2.39.96a7 7 0 00-1.62-.94l-.36-2.54a.5.5 0 00-.5-.42h-3.84a.5.5 0 00-.5.42l-.36 2.54a7 7 0 00-1.62.94l-2.39-.96a.5.5 0 00-.6.22L2.71 8.84a.5.5 0 00.12.64l2.03 1.58a7.49 7.49 0 000 1.88l-2.03 1.58a.5.5 0 00-.12.64l1.92 3.32a.5.5 0 00.6.22l2.39-.96a7 7 0 001.62.94l.36 2.54a.5.5 0 00.5.42h3.84a.5.5 0 00.5-.42l.36-2.54a7 7 0 001.62-.94l2.39.96a.5.5 0 00.6-.22l1.92-3.32a.5.5 0 00-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1112 8.5a3.5 3.5 0 010 7z"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></symbol>
   <symbol id="i-skip" viewBox="0 0 24 24"><path d="M6 5l8.5 7L6 19V5zm10 0h2v14h-2z"/></symbol>
-  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.7-10-9.3C.5 8 2.6 4.5 6 4.5c2 0 3.2 1 4 2.1.8-1.1 2-2.1 4-2.1 3.4 0 5.5 3.5 4 7.2C19.5 16.3 12 21 12 21z"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></symbol>
   <symbol id="i-block" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2c1.85 0 3.55.63 4.9 1.69L5.69 16.9A8 8 0 0112 4zm0 16a7.96 7.96 0 01-4.9-1.69L18.31 7.1A8 8 0 0112 20z"/></symbol>
   <symbol id="i-next-up" viewBox="0 0 24 24"><path d="M14 6H3v2h11V6zM14 10H3v2h11v-2zM3 16h7v-2H3v2zm13-2.5V21l5-3.75L16 13.5z"/></symbol>
   <symbol id="i-add" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></symbol>
@@ -411,6 +427,9 @@
             <div class="row" style="margin-top:10px">
               <button class="btn block" id="startRadio"><svg class="icon sm"><use href="#i-play"/></svg> Start Radio</button>
             </div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn danger block" id="stopBtn" title="Stop playback, clear the queue, and pause the DJ"><svg class="icon sm"><use href="#i-stop"/></svg> Stop</button>
+            </div>
             <small id="playbackMsg" class="hint block"></small>
           </div>
 
@@ -445,11 +464,13 @@
           <div class="card">
             <h2>Seed Taste from YouTube Music</h2>
             <small class="hint block" style="margin-bottom:10px">
-              Public YouTube Music playlist → taste profile. Playback via Tidal.
+              Public YouTube Music playlist → taste profile, then starts a queue
+              mixing songs from the playlist with new discoveries. Playback via
+              Tidal.
             </small>
             <div class="row">
               <input type="text" id="seedInput" placeholder="https://music.youtube.com/playlist?list=…" />
-              <button class="btn" id="seedBtn">Seed</button>
+              <button class="btn" id="seedBtn">Seed &amp; Play</button>
             </div>
             <small id="seedMsg" class="hint block"></small>
           </div>
@@ -562,6 +583,19 @@
     </div>`;
   }
 
+  // Paused → show the play triangle; playing → show the pause bars.
+  // Recreate the <use> node rather than flipping its href in place — Chrome
+  // caches the rendered SVG shadow tree and won't repaint an in-place href.
+  function setPauseIcon(isPaused) {
+    const btn = document.getElementById("pauseBtn");
+    const wantIcon = isPaused ? "i-play" : "i-pause";
+    if (btn.dataset.icon !== wantIcon) {
+      btn.querySelector("svg").innerHTML = `<use href="#${wantIcon}"/>`;
+      btn.dataset.icon = wantIcon;
+    }
+    btn.title = isPaused ? "Resume" : "Pause";
+  }
+
   async function refreshStatus() {
     try {
       const s = await getJSON("/status");
@@ -575,7 +609,8 @@
       document.getElementById("maBanner").classList.toggle(
         "show", s.configured !== false && !s.ma_connected);
 
-      document.getElementById("nowPlaying").textContent = s.now_playing || "—";
+      document.getElementById("nowPlaying").textContent =
+        s.dj_stopped ? "Stopped" : (s.now_playing || "—");
       document.getElementById("meta").textContent =
         `${s.time_of_day} · ${s.items_remaining} in queue · ${s.session_minutes} min`;
 
@@ -600,16 +635,7 @@
       document.getElementById("blockBtn").disabled = !s.can_block;
       renderPeople(s.people || []);
 
-      const isPaused = (s.player_state || "").toLowerCase() === "paused";
-      const pauseBtn = document.getElementById("pauseBtn");
-      const wantIcon = isPaused ? "i-play" : "i-pause";
-      // Recreate the <use> node rather than just flipping its href — Chrome
-      // caches the rendered SVG shadow tree and won't repaint an in-place href.
-      if (pauseBtn.dataset.icon !== wantIcon) {
-        pauseBtn.querySelector("svg").innerHTML = `<use href="#${wantIcon}"/>`;
-        pauseBtn.dataset.icon = wantIcon;
-      }
-      pauseBtn.title = isPaused ? "Resume" : "Pause";
+      setPauseIcon((s.player_state || "").toLowerCase() === "paused");
     } catch (e) {
       setConn(false);
     }
@@ -835,8 +861,22 @@
 
   // ── Transport controls ──
   document.getElementById("pauseBtn").addEventListener("click", async (e) => {
-    const btn = e.currentTarget; btn.disabled = true;
-    try { await postJSON("/playpause"); } finally { btn.disabled = false; refreshStatus(); }
+    const btn = e.currentTarget;
+    // Flip the icon immediately: it reflects the last polled state, so toggling
+    // it now gives instant feedback instead of waiting on MA's eventually-
+    // consistent state (which the 5s poll only catches up to later).
+    const wasPaused = btn.dataset.icon === "i-play";
+    setPauseIcon(!wasPaused);
+    btn.disabled = true;
+    try {
+      await postJSON("/playpause");
+    } catch (err) {
+      setPauseIcon(wasPaused);  // command failed — restore the real state
+    } finally {
+      btn.disabled = false;
+    }
+    // Reconcile once MA has actually transitioned; the 5s poll is the backstop.
+    setTimeout(refreshStatus, 1500);
   });
   document.getElementById("skipBtn").addEventListener("click", async (e) => {
     const btn = e.currentTarget; btn.disabled = true;
@@ -929,6 +969,21 @@
       refreshStatus(); refreshLog(); refreshQueue();
     }
   });
+  document.getElementById("stopBtn").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const msg = document.getElementById("playbackMsg");
+    btn.disabled = true; btn.innerHTML = '<svg class="icon sm"><use href="#i-stop"/></svg> Stopping…';
+    try {
+      const r = await postJSON("/stop");
+      msg.textContent = r.ok
+        ? "Stopped — queue cleared. Press Start Radio to resume."
+        : `Couldn't stop: ${r.error || "unknown error"}`;
+    } catch (err) { msg.textContent = "Stop failed."; }
+    finally {
+      btn.disabled = false; btn.innerHTML = '<svg class="icon sm"><use href="#i-stop"/></svg> Stop';
+      refreshStatus(); refreshQueue();
+    }
+  });
 
   // ── Seed / save ──
   document.getElementById("seedBtn").addEventListener("click", async (e) => {
@@ -937,14 +992,26 @@
     const v = input.value.trim();
     if (!v) { msg.textContent = "Paste a public YouTube Music playlist URL first."; return; }
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Seeding…";
-    msg.textContent = "Fetching playlist and analyzing your taste…";
+    msg.textContent = "Fetching playlist, analyzing your taste, and starting a queue…";
     try {
       const r = await postJSON("/seed", { playlist: v });
-      msg.textContent = r.ok
-        ? `Seeded from ${r.track_count} tracks — taste profile updated.`
-        : `Seed failed: ${r.error || "unknown error"}`;
+      if (r.ok) {
+        const seeded = `Seeded from ${r.track_count} tracks — taste profile updated.`;
+        if (r.radio_started) {
+          msg.textContent = `${seeded} Started a queue (${r.enqueued || 0} tracks).`;
+        } else if (r.radio_error) {
+          msg.textContent = `${seeded} Couldn't start playback: ${r.radio_error}`;
+        } else {
+          msg.textContent = seeded;
+        }
+      } else {
+        msg.textContent = `Seed failed: ${r.error || "unknown error"}`;
+      }
     } catch (err) { msg.textContent = "Seed failed."; }
-    finally { btn.disabled = false; btn.textContent = "Seed"; }
+    finally {
+      btn.disabled = false; btn.textContent = "Seed & Play";
+      refreshStatus(); refreshLog(); refreshQueue();
+    }
   });
   document.getElementById("savePlaylist").addEventListener("click", async (e) => {
     const name = document.getElementById("playlistName").value.trim();

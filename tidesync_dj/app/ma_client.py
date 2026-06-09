@@ -35,6 +35,8 @@ CMD_PLAY_MEDIA = "player_queues/play_media"
 CMD_NEXT = "players/cmd/next"
 CMD_PLAY = "players/cmd/play"
 CMD_PAUSE = "players/cmd/pause"
+CMD_PLAY_PAUSE = "players/cmd/play_pause"
+CMD_STOP = "players/cmd/stop"
 CMD_SEARCH = "music/search"
 CMD_LIBRARY_TRACKS = "music/tracks/library_items"
 # Queue editing (remove + reorder upcoming items from the dashboard).
@@ -683,6 +685,7 @@ class MusicAssistantClient:
 
         blocked_uris = blocked_uris or set()
         enqueued: list[dict[str, Any]] = []
+        seen: set[str] = set()  # dedupe within this batch (two queries → same track)
         first = True
         for query in queries:
             track = await self.search_track(query)
@@ -691,8 +694,8 @@ class MusicAssistantClient:
             uri = track.get("uri")
             if not uri:
                 continue
-            if uri in blocked_uris:
-                _LOGGER.debug("Skipping blocked track %s", uri)
+            if uri in blocked_uris or uri in seen:
+                _LOGGER.debug("Skipping blocked/duplicate track %s", uri)
                 continue
             # Only the first track of a "play" batch interrupts; the rest append.
             this_option = option if (first and option == "play") else "add"
@@ -704,6 +707,7 @@ class MusicAssistantClient:
                     option=this_option,
                 )
                 enqueued.append(track)
+                seen.add(uri)
                 first = False
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Failed to queue %r: %s", query, err)
@@ -730,6 +734,36 @@ class MusicAssistantClient:
             return True
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Pause failed: %s", err)
+            return False
+
+    async def stop(self) -> bool:
+        """Stop playback on the active player (does not clear the queue)."""
+        player_id = self.active_queue_id or self.selected_player_id
+        if not player_id:
+            return False
+        try:
+            await self._command(CMD_STOP, player_id=player_id)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Stop failed: %s", err)
+            return False
+
+    async def play_pause(self) -> bool:
+        """Atomically toggle play/pause on the active player.
+
+        Preferred over a read-then-decide toggle: MA flips based on its own
+        authoritative state in a single call, avoiding races against the
+        eventually-consistent player state (a stale read could send the wrong
+        command), and it resumes a paused queue more reliably than a bare play.
+        """
+        player_id = self.active_queue_id or self.selected_player_id
+        if not player_id:
+            return False
+        try:
+            await self._command(CMD_PLAY_PAUSE, player_id=player_id)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Play/pause toggle failed: %s", err)
             return False
 
     async def get_play_state(self) -> str | None:
