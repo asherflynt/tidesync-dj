@@ -9,7 +9,7 @@ arch:
 init: false
 ingress: true
 ingress_port: 8099
-panel_icon: mdi:music-note-bluetooth
+panel_icon: mdi:disc-player
 panel_title: TideSync DJ
 # Only the Core REST API is needed (states + events). We deliberately do NOT
 # request hassio_api / host access — least privilege.
