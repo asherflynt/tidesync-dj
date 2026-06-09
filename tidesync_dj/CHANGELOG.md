@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.5
+
+### Start radio from a seed song
+- Each search result now has a third **Start radio** button alongside *Add to
+  end* and *Play next*. It clears the queue, plays the hand-picked song
+  immediately, and asks the Claude DJ brain to build a ~30-track station that
+  flows from that seed (matching its genre, energy and era; never repeating the
+  seed or queuing blocked tracks).
+- Reuses the existing rebuild path (connection guard → player check → clear →
+  re-baseline), so as the queue later drains the normal auto-DJ tick continues
+  the station with no extra wiring.
+
 ## 0.7.4
 
 ### Touch-friendly UI
