@@ -31,49 +31,64 @@ genre relationships, energy flow, and track sequencing. You control a
 Tidal queue via Music Assistant.
 
 Your job each cycle: given the active driver (a hand-picked seed, a vibe, or —
-absent both — the listener's taste), plus recent history and session context,
-select the next block of tracks to queue. Think like a DJ planning a full set,
-with a deliberate arc from start to finish.
+absent both — the listener's taste), plus the session's set plan, recent
+history, and context, select the next block of tracks to queue. Think like a
+world-class DJ programming a room — every transition deliberate.
 
 PRIORITY — when signals conflict, obey them in this order (highest first):
-1. HARD CONSTRAINTS — never queue anything in "blocked_tracks", and avoid any
-   artist/track in "recent_skips" for this session. These are absolute.
-2. SEED — if "seed_track" is set, build the station around it: match its genre,
-   energy and era. The seed outranks the taste profile entirely.
-3. VIBE — if "vibe_prompt" is set, it DOMINATES genre, energy and era. When the
-   vibe conflicts with the taste profile, follow the VIBE, not the taste
-   ("kids dance party" outranks an adult indie taste profile). Any specific
-   songs or artists named in the vibe are MUST-PLAYS: include each one somewhere
-   in the set (for a named artist, at least one of their tracks) — placed
-   naturally within the arc, NOT necessarily first.
-4. TASTE — only when there is NO seed and NO vibe does the listener's taste lead.
-   Treat it as dynamic, not a static dump: lead with what they typically ask for
-   and like right now (see "moods_this_time_of_day", "moods_this_month",
-   "likes_this_time_of_day", "likes_this_month"), set energy to suit
-   "time_of_day", and use the "taste_profile" summary as the backbone palette.
-   The same person should sound different morning vs. late night, and across
-   months/seasons.
-5. HOUSEHOLD BASELINE — weakest fallback, used only when the listener has no
-   taste of their own.
+1. HARD CONSTRAINTS — never queue anything in "blocked_tracks"; avoid any
+   artist/track in "recent_skips" this session. Absolute.
+2. SEED — if "seed_track" is set, build the station around it (its genre,
+   energy, era). The seed outranks the taste profile.
+3. VIBE — if "vibe_prompt" is set, it DOMINATES. First READ the vibe literally
+   and fill "vibe_reading": restate what it is truly asking for — its intent,
+   target energy and mood — then honor that direction. Take the words at face
+   value: "chill / put me to sleep" means genuinely low, calming energy
+   throughout (no upbeat singalongs); "high energy" means drive it. Songs or
+   artists named in the vibe are MUST-PLAYS — include each somewhere in the set
+   (a named artist ⇒ at least one of their tracks), placed naturally, not
+   necessarily first.
+4. TASTE — only when there is NO seed and NO vibe does taste lead. It is dynamic:
+   lead with what they ask for and like right now ("moods_this_time_of_day",
+   "moods_this_month", "likes_this_time_of_day", "likes_this_month"), set energy
+   to suit "time_of_day", and use "taste_profile" as the backbone palette. The
+   same person sounds different morning vs. night and across seasons.
+5. HOUSEHOLD BASELINE — weakest fallback, only when the listener has no taste.
 
-MATCH THE DRIVER, ALWAYS — there is no fixed familiar/discovery ratio. EVERY
-track, familiar or new, must fit whatever is driving this set (the vibe when
-set, otherwise the active person's taste). Keep the set fresh by interjecting
-new and unheard songs and artists (aim for roughly a third, as a feel — not a
-rule), but those discovery picks must ALSO match the active vibe/profile — never
-fall back to off-vibe "familiar" favourites just because they're known (a
-kids-party vibe must never yield adult favourites, new or old).
+STAY DYNAMIC — honor the vibe's DIRECTION, but do NOT flatten the music. There
+is no fixed familiar/discovery ratio and no banned categories: range widely,
+surprise the listener, and keep the set breathing and varied WITHIN the
+requested lane (a chill set still rises and falls gently; an energetic one has
+peaks and breathers). Keep it fresh with new/unheard songs and artists, but
+every pick — familiar or new — must serve the active driver (a kids-party vibe
+never yields adult favourites, new or old).
 
-Also:
-- Build an energy arc across the full block — rise, peak, breathe, and resolve;
-  don't just repeat one tempo/mood.
-- Vary artists — no same artist back-to-back, and no more than 2-3 times in the
-  block.
-- Avoid re-queuing tracks/artists prominent in "recent_history" so repeated
-  sessions don't sound identical.
-- Each track query must be in "Artist - Track" form so it resolves in search.
-- Always provide a brief "dj_note" explaining the arc and what drove your picks.
-- Return exactly "tracks_to_add" tracks (currently 30) in next_tracks.
+FOLLOW THE SET PLAN — "set_plan" lays out the session's phases (an arc across
+the night) and "arc_position" says where you are (elapsed time, % through,
+current phase). Pick for the CURRENT phase and transition smoothly toward the
+next; don't restart the arc every block.
+
+READ THE SIGNALS:
+- "energy_bias" (negative = pull calmer, positive = push more energetic) shifts
+  your target energy for this block.
+- If "reroll" is true the listener pressed "try again" — they want a DIFFERENT
+  direction than what just played in "recent_history": change genre/energy/feel
+  meaningfully, don't repeat the last block's idea.
+- Let "weather" and "outside_temp" subtly colour mood (cold rainy night ⇒
+  cosier; hot bright afternoon ⇒ brighter), never overriding the driver.
+
+CRAFT (programme like a $1M event DJ):
+- Smooth tempo/energy transitions — no jarring jumps; rise, peak, breathe and
+  resolve across the block and toward the next phase.
+- Place peaks deliberately; don't blow the roof off too early. Strong opener and
+  a satisfying closer.
+- Drop singalongs / known moments where they land best.
+- Vary artists — never back-to-back, no more than 2-3 times in the block.
+- Avoid re-queuing tracks/artists prominent in "recent_history".
+- If the listener or vibe implies kids/family, keep it clean — no explicit tracks.
+- Each track query in "Artist - Track" form so it resolves in search.
+- Fill "vibe_reading" (your read of the driver), give a brief "dj_note" on the
+  arc and what drove your picks, and return exactly "tracks_to_add" tracks.
 """
 
 # JSON schema for structured outputs. Must satisfy the structured-output
@@ -82,6 +97,16 @@ Also:
 DECISION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "vibe_reading": {
+            "type": "object",
+            "properties": {
+                "energy_target": {"type": "integer"},
+                "mood": {"type": "string"},
+                "interpretation": {"type": "string"},
+            },
+            "required": ["energy_target", "mood", "interpretation"],
+            "additionalProperties": False,
+        },
         "next_tracks": {
             "type": "array",
             "items": {
@@ -98,7 +123,38 @@ DECISION_SCHEMA: dict[str, Any] = {
         "mood_shift_reason": {"type": ["string", "null"]},
         "dj_note": {"type": "string"},
     },
-    "required": ["next_tracks", "mood_shift", "mood_shift_reason", "dj_note"],
+    "required": [
+        "vibe_reading",
+        "next_tracks",
+        "mood_shift",
+        "mood_shift_reason",
+        "dj_note",
+    ],
+    "additionalProperties": False,
+}
+
+# Schema for the one-shot, session-level set plan (the long-form arc).
+SET_PLAN_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "phases": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "target_energy": {"type": "integer"},
+                    "mood": {"type": "string"},
+                    "approx_minutes": {"type": "integer"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["name", "target_energy", "mood", "approx_minutes", "notes"],
+                "additionalProperties": False,
+            },
+        },
+        "arc_note": {"type": "string"},
+    },
+    "required": ["phases", "arc_note"],
     "additionalProperties": False,
 }
 
@@ -108,11 +164,31 @@ class NextTrack(BaseModel):
     reason: str
 
 
+class VibeReading(BaseModel):
+    energy_target: int = 5
+    mood: str = ""
+    interpretation: str = ""
+
+
 class DJDecision(BaseModel):
+    vibe_reading: VibeReading = Field(default_factory=VibeReading)
     next_tracks: list[NextTrack] = Field(default_factory=list)
     mood_shift: bool = False
     mood_shift_reason: str | None = None
     dj_note: str = ""
+
+
+class SetPhase(BaseModel):
+    name: str = ""
+    target_energy: int = 5
+    mood: str = ""
+    approx_minutes: int = 30
+    notes: str = ""
+
+
+class SetPlan(BaseModel):
+    phases: list[SetPhase] = Field(default_factory=list)
+    arc_note: str = ""
 
 
 class ClaudeBrain:
@@ -204,6 +280,41 @@ class ClaudeBrain:
         except ValidationError as err:
             _LOGGER.error("Could not validate DJ decision: %s\nraw=%s", err, text)
             return DJDecision(dj_note="(failed to parse Claude response)")
+
+    async def plan_set(self, context: dict[str, Any]) -> SetPlan:
+        """Plan the long-form arc of a session BEFORE picking tracks.
+
+        Returns an ordered list of phases (with target energy/mood/minutes) that
+        the per-tick `decide()` then fills, so the whole session has a coherent
+        shape instead of 30-track islands. One-shot, low effort. Non-fatal:
+        returns an empty plan on any error so the DJ still runs.
+        """
+        prompt = (
+            "Plan the SHAPE of this listening session before any tracks are "
+            "picked. Lay out an ordered set of phases forming a deliberate arc "
+            "(e.g. ease-in -> build -> peak -> wind-down) that fits the driver, "
+            "time of day and expected duration. Each phase: a name, target_energy "
+            "(1-10), mood, approx_minutes, and notes. Honor the vibe's literal "
+            "intent (a 'put me to sleep' vibe stays low-energy throughout; a party "
+            "builds to a peak). Use 2-5 phases. Add a one-line arc_note.\n\n"
+            "Session context:\n" + json.dumps(context, default=str)
+        )
+        try:
+            response = await self._client.messages.create(
+                model=self._model,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+                extra_body=self._extra_body(effort="low", json_schema=SET_PLAN_SCHEMA),
+            )
+        except anthropic.APIError as err:
+            _LOGGER.error("Set plan call failed: %s", err)
+            return SetPlan()
+        text = next((b.text for b in response.content if b.type == "text"), "")
+        try:
+            return SetPlan.model_validate_json(text)
+        except ValidationError as err:
+            _LOGGER.error("Could not validate set plan: %s\nraw=%s", err, text)
+            return SetPlan()
 
     async def summarize_taste(
         self, library_sample: list[dict[str, Any]], previous: str = ""

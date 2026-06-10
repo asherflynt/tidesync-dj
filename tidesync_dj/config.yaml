@@ -1,5 +1,5 @@
 name: TideSync DJ
-version: "1.0.2"
+version: "1.1.0"
 slug: tidesync_dj
 description: AI-powered DJ for any Music Assistant source, powered by Claude
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj
@@ -26,6 +26,9 @@ options:
   ma_token: ""
   vibe_input_text_entity: ""
   playlist_provider: ""
+  weather_entity: ""
+  temperature_entity: ""
+  ha_action_entity: ""
 schema:
   anthropic_api_key: str
   claude_model: list(claude-sonnet-4-6|claude-opus-4-8|claude-haiku-4-5)
@@ -38,5 +41,8 @@ schema:
   skip_penalty_seconds: int
   vibe_input_text_entity: str?
   playlist_provider: str?
+  weather_entity: str?
+  temperature_entity: str?
+  ha_action_entity: str?
   # Deprecated alias for playlist_provider; honoured if present on upgrade.
   tidal_provider: str?

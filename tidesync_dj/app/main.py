@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        await engine.stop()
+        await engine.shutdown()
         _LOGGER.info("TideSync DJ stopped")
 
 
@@ -84,6 +84,14 @@ class VibeBody(BaseModel):
     prompt: str
 
 
+class EnergyBody(BaseModel):
+    direction: str  # "up" | "down"
+
+
+class VolumeBody(BaseModel):
+    level: int  # 0-100
+
+
 class PlayerBody(BaseModel):
     player_id: str
 
@@ -93,6 +101,11 @@ class UserSelectBody(BaseModel):
 
 
 class UserAddBody(BaseModel):
+    name: str
+
+
+class UserRenameBody(BaseModel):
+    slug: str
     name: str
 
 
@@ -201,8 +214,25 @@ async def players(request: Request):
 
 @app.post("/players/select")
 async def select_player(request: Request, body: PlayerBody):
-    _engine(request).select_player(body.player_id)
-    return {"ok": True, "player_id": body.player_id}
+    result = await _engine(request).select_player(body.player_id)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.post("/volume")
+async def volume(request: Request, body: VolumeBody):
+    result = await _engine(request).set_volume(body.level)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.post("/previous")
+async def previous(request: Request):
+    result = await _engine(request).previous_track()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.get("/users/profiles")
+async def user_profiles(request: Request):
+    return {"people": _engine(request).user_taste_profiles()}
 
 
 @app.post("/start_radio")
@@ -268,6 +298,12 @@ async def nudge(request: Request):
     return JSONResponse(result, status_code=200 if result.get("ok") else 502)
 
 
+@app.post("/energy")
+async def energy(request: Request, body: EnergyBody):
+    result = await _engine(request).nudge_energy(body.direction)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
 @app.get("/users")
 async def users(request: Request):
     return {"people": _engine(request).list_users()}
@@ -282,6 +318,18 @@ async def select_user(request: Request, body: UserSelectBody):
 @app.post("/users/add")
 async def add_user(request: Request, body: UserAddBody):
     result = _engine(request).add_user(body.name)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
+
+
+@app.post("/users/rename")
+async def rename_user(request: Request, body: UserRenameBody):
+    result = _engine(request).rename_user(body.slug, body.name)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
+
+
+@app.post("/users/delete")
+async def delete_user(request: Request, body: UserSelectBody):
+    result = _engine(request).delete_user(body.slug)
     return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
 

@@ -105,6 +105,11 @@
   input[type=search] { -webkit-appearance: none; appearance: none; }
   input[type=text]:focus, input[type=search]:focus, select:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
   select { cursor: pointer; }
+  .volrow { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .volrow input[type=range] { flex: 1; accent-color: var(--primary); cursor: pointer; }
+  .volrow .icon.sm { width: 18px; height: 18px; fill: var(--muted); flex: 0 0 auto; }
+  details.card > summary { cursor: pointer; font-size: 15px; color: var(--muted); }
+  details.card[open] > summary { color: var(--text); margin-bottom: 6px; }
   .btn {
     background: var(--primary); color: var(--on-primary); border: 0;
     border-radius: var(--r-full); padding: 11px 20px; font-size: 14px; font-weight: 700;
@@ -138,7 +143,9 @@
     display: inline-block; background: var(--surface2); border: 1px solid var(--outline);
     border-radius: var(--r-full); padding: 4px 12px; color: var(--muted); font-size: 12px;
   }
-  .pill.model { margin-left: auto; }
+  /* Status + model grouped together on the far right, styled the same. */
+  .header-status { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .pill.status { display: inline-flex; align-items: center; gap: 6px; }
   .pill.vibe { color: var(--primary); align-self: flex-start; }
 
   .art-wrap {
@@ -331,12 +338,17 @@
   <symbol id="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></symbol>
   <symbol id="i-skip" viewBox="0 0 24 24"><path d="M6 5l8.5 7L6 19V5zm10 0h2v14h-2z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M18 5l-8.5 7L18 19V5zM6 5h2v14H6z"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 00-2.5-4.03v8.06A4.5 4.5 0 0016.5 12zM14 3.23v2.06a7 7 0 010 13.42v2.06a9 9 0 000-17.54z"/></symbol>
   <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></symbol>
+  <symbol id="i-heart-outline" viewBox="0 0 24 24"><path d="M12.1 18.55l-.1.1-.11-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04 1 3.57 2.36h1.86C13.46 6 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3z"/></symbol>
   <symbol id="i-block" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2c1.85 0 3.55.63 4.9 1.69L5.69 16.9A8 8 0 0112 4zm0 16a7.96 7.96 0 01-4.9-1.69L18.31 7.1A8 8 0 0112 20z"/></symbol>
   <symbol id="i-next-up" viewBox="0 0 24 24"><path d="M14 6H3v2h11V6zM14 10H3v2h11v-2zM3 16h7v-2H3v2zm13-2.5V21l5-3.75L16 13.5z"/></symbol>
   <symbol id="i-add" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></symbol>
-  <symbol id="i-radio" viewBox="0 0 24 24"><path d="M12 8a4 4 0 00-4 4 4 4 0 002 3.46l1-1.76A2 2 0 0110 12a2 2 0 014 0 2 2 0 01-1 1.7l1 1.76A4 4 0 0016 12a4 4 0 00-4-4zm-5.66.34L4.93 6.93a10 10 0 000 14.14l1.41-1.41a8 8 0 010-11.32zm11.32 0a8 8 0 010 11.32l1.41 1.41a10 10 0 000-14.14l-1.41 1.41zM12 11a1 1 0 100 2 1 1 0 000-2z"/></symbol>
+  <symbol id="i-radio" viewBox="0 0 24 24"><path d="M5 4l-.94.94C2.13 6.87 1 9.55 1 12.5s1.13 5.63 3.06 7.56L5 19.12c-1.7-1.7-2.5-3.97-2.5-6.62S3.3 7.58 5 5.88L5 4m14 0l-.94 1.88c1.7 1.7 2.44 3.97 2.44 6.62s-.74 4.92-2.44 6.62l.94.94C20.87 18.13 22 15.45 22 12.5s-1.13-5.63-3.06-7.56L19 4M7.76 7.76l-.95.95C5.68 9.84 5 11.11 5 12.5s.68 2.66 1.81 3.79l.95-.95c-.88-.88-1.26-1.79-1.26-2.84s.38-1.96 1.26-2.84M16.24 7.76C17.32 8.84 18 10.11 18 12.5s-.68 2.66-1.76 3.74l.95.95C18.32 16.06 19 14.39 19 12.5s-.68-3.56-1.81-4.69l-.95.95M12 9.5a3 3 0 00-3 3c0 1.31.83 2.42 2 2.83V22h2v-6.67c1.17-.41 2-1.52 2-2.83a3 3 0 00-3-3m0 2a1 1 0 011 1 1 1 0 01-1 1 1 1 0 01-1-1 1 1 0 011-1z"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></symbol>
+  <symbol id="i-energy-up" viewBox="0 0 24 24"><path d="M3.5 18.5l6-6 4 4 7.5-8.49L22 9.5l-8.5 9.5-4-4-4.5 4.5z"/></symbol>
+  <symbol id="i-energy-down" viewBox="0 0 24 24"><path d="M22 7l-7.5 8.49-4-4-6 6L3.5 16l6.5-6.5 4 4L20.59 5.5z"/></symbol>
   <symbol id="i-drag" viewBox="0 0 24 24"><path d="M9 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm9-12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/></symbol>
 </svg>
 
@@ -349,10 +361,11 @@
     <!-- ════ NOW PLAYING ════ -->
     <section class="panel active" id="p-np" data-panel="np">
       <div class="np-header">
-        <span class="dot connecting" id="conn"></span>
-        <span class="conn-text connecting" id="connText">Connecting…</span>
         <h1><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5,10.37C15.54,10.37 16.38,9.53 16.38,8.5C16.38,7.46 15.54,6.63 14.5,6.63C13.46,6.63 12.63,7.46 12.63,8.5A1.87,1.87 0 0,0 14.5,10.37M14.5,1A7.5,7.5 0 0,1 22,8.5C22,10.67 21.08,12.63 19.6,14H9.4C7.93,12.63 7,10.67 7,8.5C7,4.35 10.36,1 14.5,1M6,21V22H4V21H2V15H22V21H20V22H18V21H6M4,18V19H13V18H4M15,17V19H17V17H15M19,17A1,1 0 0,0 18,18A1,1 0 0,0 19,19A1,1 0 0,0 20,18A1,1 0 0,0 19,17Z"/></svg> TideSync DJ</h1>
-        <span class="pill model" id="model"></span>
+        <span class="header-status">
+          <span class="pill status"><span class="dot connecting" id="conn"></span><span class="conn-text connecting" id="connText">Connecting…</span></span>
+          <span class="pill model" id="model"></span>
+        </span>
       </div>
 
       <div class="np-center">
@@ -364,6 +377,9 @@
         <div class="track-meta" id="meta"></div>
 
         <div class="controls">
+          <button class="ctrl" id="prevBtn" title="Previous track">
+            <svg class="icon"><use href="#i-prev"/></svg>
+          </button>
           <button class="ctrl" id="pauseBtn" title="Pause / Resume">
             <svg class="icon"><use id="pauseIcon" href="#i-pause"/></svg>
           </button>
@@ -371,11 +387,15 @@
             <svg class="icon"><use href="#i-skip"/></svg>
           </button>
           <button class="ctrl like" id="likeBtn" disabled title="Like track">
-            <svg class="icon"><use href="#i-heart"/></svg>
+            <svg class="icon"><use href="#i-heart-outline"/></svg>
           </button>
-          <button class="ctrl block" id="blockBtn" disabled title="Block this song for 30 days">
+          <button class="ctrl block" id="blockBtn" disabled title="Block this song">
             <svg class="icon"><use href="#i-block"/></svg>
           </button>
+        </div>
+        <div class="volrow">
+          <svg class="icon sm" aria-hidden="true"><use href="#i-volume"/></svg>
+          <input type="range" id="volume" min="0" max="100" value="50" aria-label="Volume" />
         </div>
         <div class="ctrl-msg" id="likeMsg"></div>
         <span class="pill vibe" id="vibePill">no vibe set</span>
@@ -446,7 +466,9 @@
             </div>
             <div class="row" style="margin-top:10px">
               <button class="btn" id="setVibe">Set Vibe</button>
-              <button class="btn ghost" id="nudge">Nudge DJ</button>
+              <button class="btn ghost" id="nudge" title="Try again — a different direction">Nudge DJ</button>
+              <button class="ctrl" id="energyDown" title="Less energy"><svg class="icon"><use href="#i-energy-down"/></svg></button>
+              <button class="ctrl" id="energyUp" title="More energy"><svg class="icon"><use href="#i-energy-up"/></svg></button>
             </div>
           </div>
 
@@ -461,10 +483,12 @@
           <div class="card">
             <h2>Session Stats</h2>
             <div class="stats">
-              <div class="stat"><b id="sPlayed">0</b><span>tracks played</span></div>
+              <div class="stat"><b id="sPlayed">0</b><span>played</span></div>
+              <div class="stat"><b id="sDisc">0</b><span>tracks added</span></div>
+              <div class="stat"><b id="sArtists">0</b><span>artists</span></div>
               <div class="stat"><b id="sSkips">0</b><span>skips</span></div>
-              <div class="stat"><b id="sDisc">0</b><span>discoveries</span></div>
             </div>
+            <small class="hint block" style="margin-top:8px">A session starts when you Start Radio (or pick a song) and resets then; Stop ends it.</small>
           </div>
 
           <div class="card">
@@ -481,17 +505,27 @@
             <small id="seedMsg" class="hint block"></small>
           </div>
 
-          <div class="card">
-            <h2>Save Session as Tidal Playlist</h2>
+          <details class="card">
+            <summary><b>Advanced</b></summary>
+
+            <h2 style="margin-top:14px">Playlist builder</h2>
             <small class="hint block" style="margin-bottom:10px">
-              Save the <span id="sessionCount">0</span> track(s) heard this session.
+              Build a playlist from the <span id="sessionCount">0</span> track(s) heard this
+              session and export it to your music service — great for offline use / flights.
             </small>
             <div class="row">
               <input type="text" id="playlistName" placeholder="Playlist name (optional)" />
-              <button class="btn" id="savePlaylist">Save to Tidal</button>
+              <button class="btn" id="savePlaylist">Create playlist</button>
             </div>
             <small id="saveMsg" class="hint block"></small>
-          </div>
+
+            <h2 style="margin-top:18px">Learned taste profiles</h2>
+            <small class="hint block" style="margin-bottom:10px">
+              What the DJ has learned about each listener (read-only — it learns from likes &amp; blocks).
+            </small>
+            <button class="btn ghost" id="viewTasteBtn">View learned taste</button>
+            <div id="tasteView" class="hint block" style="margin-top:10px"></div>
+          </details>
 
           <div class="card">
             <h2>DJ Decision Log</h2>
@@ -601,6 +635,18 @@
     }
     btn.title = isPaused ? "Resume" : "Pause";
   }
+  // While this is in the future, status polls won't override the icon — MA's
+  // player state is eventually-consistent and would otherwise flip it back.
+  let pauseLockUntil = 0;
+
+  function setLiked(liked) {
+    const btn = document.getElementById("likeBtn");
+    btn.classList.toggle("on", liked);
+    const use = btn.querySelector("use");
+    const want = liked ? "#i-heart" : "#i-heart-outline";
+    if (use.getAttribute("href") !== want) use.setAttribute("href", want);
+    btn.title = liked ? "Unlike" : "Like track";
+  }
 
   async function refreshStatus() {
     try {
@@ -633,15 +679,21 @@
 
       document.getElementById("model").textContent = s.model || "";
       document.getElementById("vibePill").textContent = s.vibe || "no vibe set";
-      document.getElementById("sPlayed").textContent = s.stats.tracks_played;
-      document.getElementById("sSkips").textContent = s.stats.skips;
-      document.getElementById("sDisc").textContent = s.stats.discoveries;
+      const st = s.stats || {};
+      document.getElementById("sPlayed").textContent = st.tracks_played || 0;
+      document.getElementById("sSkips").textContent = st.skips || 0;
+      document.getElementById("sDisc").textContent = st.added || 0;
+      document.getElementById("sArtists").textContent = st.new_artists || 0;
       document.getElementById("sessionCount").textContent = s.session_track_count || 0;
       document.getElementById("likeBtn").disabled = !s.can_like;
       document.getElementById("blockBtn").disabled = !s.can_block;
+      setLiked(!!s.current_liked);
+      if (typeof s.volume === "number" && !volDragging && document.activeElement !== volEl)
+        volEl.value = s.volume;
       renderPeople(s.people || []);
 
-      setPauseIcon((s.player_state || "").toLowerCase() === "paused");
+      if (Date.now() >= pauseLockUntil)
+        setPauseIcon((s.player_state || "").toLowerCase() === "paused");
     } catch (e) {
       setConn(false);
     }
@@ -849,34 +901,37 @@
       const { decisions } = await getJSON("/history");
       const el = document.getElementById("log");
       if (!decisions.length) { el.innerHTML = '<div class="empty">No decisions yet.</div>'; return; }
-      el.innerHTML = decisions.slice(0, 8).map(d => `
+      el.innerHTML = decisions.slice(0, 4).map(d => {
+        const t = (d.timestamp || "").slice(11, 16);  // HH:MM only
+        const vr = d.vibe_reading || {};
+        const read = vr.interpretation ? `<div class="shift">🎯 ${esc(vr.interpretation)}</div>` : "";
+        const tracks = (d.tracks || []).slice(0, 3).map(x => `<li>${esc(x.query)}</li>`).join("");
+        const more = (d.tracks || []).length > 3 ? `<li class="empty">+${(d.tracks||[]).length - 3} more</li>` : "";
+        return `
         <div class="entry">
-          <div class="meta">
-            <span>${esc(d.timestamp)} · ${esc(d.reason)}</span>
-            <span>${d.enqueued} queued</span>
-          </div>
+          <div class="meta"><span>${esc(t)} · ${esc(d.reason)}</span><span>${d.enqueued} added</span></div>
           <div class="note">${esc(d.dj_note)}</div>
-          ${d.mood_shift ? `<div class="shift">↳ mood shift: ${esc(d.mood_shift_reason || "")}</div>` : ""}
-          <ul>${(d.tracks || []).slice(0, 5).map(t =>
-            `<li><b>${esc(t.query)}</b> — ${esc(t.reason)}</li>`).join("")}
-          ${(d.tracks || []).length > 5 ? `<li class="empty">…and ${(d.tracks||[]).length - 5} more</li>` : ""}
-          </ul>
-        </div>`).join("");
+          ${read}
+          <ul>${tracks}${more}</ul>
+        </div>`;
+      }).join("");
     } catch (e) { /* ignore */ }
   }
 
   // ── Transport controls ──
   document.getElementById("pauseBtn").addEventListener("click", async (e) => {
     const btn = e.currentTarget;
-    // Flip the icon immediately: it reflects the last polled state, so toggling
-    // it now gives instant feedback instead of waiting on MA's eventually-
-    // consistent state (which the 5s poll only catches up to later).
+    // Flip the icon immediately and hold it (optimistic lock) so MA's lagging
+    // state can't flicker it back. Trust the intended state the server returns.
     const wasPaused = btn.dataset.icon === "i-play";
     setPauseIcon(!wasPaused);
+    pauseLockUntil = Date.now() + 2500;
     btn.disabled = true;
     try {
-      await postJSON("/playpause");
+      const r = await postJSON("/playpause");
+      if (r && r.state) setPauseIcon(r.state === "paused");
     } catch (err) {
+      pauseLockUntil = 0;
       setPauseIcon(wasPaused);  // command failed — restore the real state
     } finally {
       btn.disabled = false;
@@ -888,12 +943,27 @@
     const btn = e.currentTarget; btn.disabled = true;
     try { await postJSON("/skip"); } finally { btn.disabled = false; refreshStatus(); refreshQueue(); }
   });
+  document.getElementById("prevBtn").addEventListener("click", async (e) => {
+    const btn = e.currentTarget; btn.disabled = true;
+    try { await postJSON("/previous"); } finally { btn.disabled = false; refreshStatus(); refreshQueue(); }
+  });
+  // Volume — fire on release (change), and don't fight the user while dragging.
+  let volDragging = false;
+  const volEl = document.getElementById("volume");
+  volEl.addEventListener("input", () => { volDragging = true; });
+  volEl.addEventListener("change", async () => {
+    volDragging = false;
+    await postJSON("/volume", { level: parseInt(volEl.value, 10) });
+  });
   document.getElementById("likeBtn").addEventListener("click", async (e) => {
     const btn = e.currentTarget; const msg = document.getElementById("likeMsg");
     btn.disabled = true;
     try {
       const r = await postJSON("/like");
-      msg.textContent = r.ok ? `♥ Liked ${r.liked || "track"}` : (r.error || "Like failed");
+      if (r.ok) {
+        setLiked(!!r.liked);
+        msg.textContent = (r.liked ? "♥ Liked " : "♡ Unliked ") + (r.label || "track");
+      } else { msg.textContent = r.error || "Like failed"; }
     } finally { btn.disabled = false; }
   });
   document.getElementById("blockBtn").addEventListener("click", async (e) => {
@@ -919,6 +989,13 @@
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Rebuilding…";
     try { await postJSON("/nudge"); } finally { btn.disabled = false; btn.textContent = "Nudge DJ"; refreshStatus(); refreshLog(); refreshQueue(); }
   });
+  async function nudgeEnergy(direction, btn) {
+    btn.disabled = true;
+    try { await postJSON("/energy", { direction }); }
+    finally { btn.disabled = false; refreshStatus(); refreshLog(); refreshQueue(); }
+  }
+  document.getElementById("energyUp").addEventListener("click", (e) => nudgeEnergy("up", e.currentTarget));
+  document.getElementById("energyDown").addEventListener("click", (e) => nudgeEnergy("down", e.currentTarget));
 
   // ── People ──
   function renderPeople(people) {
@@ -933,6 +1010,24 @@
     btn.disabled = true;
     try { await postJSON("/users/select", { slug: btn.dataset.slug }); }
     finally { refreshStatus(); refreshLog(); }
+  });
+  // Double-click a listener to rename (or clear the name to delete them).
+  document.getElementById("peopleBtns").addEventListener("dblclick", async (e) => {
+    const btn = e.target.closest(".person");
+    if (!btn) return;
+    const cur = btn.textContent.trim();
+    const name = prompt(`Rename "${cur}" (blank to delete):`, cur);
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      if (confirm(`Delete listener "${cur}" and their learned taste?`)) {
+        const r = await postJSON("/users/delete", { slug: btn.dataset.slug });
+        if (!r.ok) toast(r.error || "Couldn't delete");
+        refreshStatus();
+      }
+      return;
+    }
+    if (trimmed !== cur) { await postJSON("/users/rename", { slug: btn.dataset.slug, name: trimmed }); refreshStatus(); }
   });
   document.getElementById("addPerson").addEventListener("click", async () => {
     const name = (prompt("Add a person (name):") || "").trim();
@@ -955,7 +1050,10 @@
     } catch (e) { /* MA not connected yet */ }
   }
   document.getElementById("playerSelect").addEventListener("change", async (e) => {
-    if (e.target.value) await postJSON("/players/select", { player_id: e.target.value });
+    if (!e.target.value) return;
+    const r = await postJSON("/players/select", { player_id: e.target.value });
+    if (r && r.transferred && r.transferred !== false) toast("Moved playback to this player");
+    refreshStatus(); refreshQueue();
   });
   document.getElementById("startRadio").addEventListener("click", async (e) => {
     const sel = document.getElementById("playerSelect");
@@ -1030,7 +1128,18 @@
         ? `Saved "${r.playlist}" with ${r.track_count} track(s).`
         : `Couldn't save: ${r.error || "unknown error"}`;
     } catch (err) { msg.textContent = "Save failed."; }
-    finally { btn.disabled = false; btn.textContent = "Save to Tidal"; }
+    finally { btn.disabled = false; btn.textContent = "Create playlist"; }
+  });
+  document.getElementById("viewTasteBtn").addEventListener("click", async (e) => {
+    const box = document.getElementById("tasteView");
+    e.currentTarget.disabled = true;
+    try {
+      const { people } = await getJSON("/users/profiles");
+      box.innerHTML = (people || []).map(p =>
+        `<div style="margin:8px 0"><b>${esc(p.name)}${p.active ? " (active)" : ""}</b><br>${esc(p.summary)}</div>`
+      ).join("") || "No profiles yet.";
+    } catch (err) { box.textContent = "Couldn't load taste profiles."; }
+    finally { e.currentTarget.disabled = false; }
   });
 
   // ── Boot + polling ──

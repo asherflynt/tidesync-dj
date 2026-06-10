@@ -12,6 +12,7 @@ skip detection (it produced false skips on queue clears / rebuilds).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import time
@@ -19,7 +20,7 @@ from collections import deque
 from datetime import datetime
 from typing import Any
 
-from claude_brain import ClaudeBrain
+from claude_brain import ClaudeBrain, SetPlan
 from config import Config
 from ha_client import HAClient
 from ma_client import MusicAssistantClient, EVENT_QUEUE_UPDATED, EVENT_QUEUE_TIME_UPDATED
@@ -33,6 +34,14 @@ ENQUEUE_THRESHOLD = 5   # tick when fewer than this many tracks remain
 QUEUE_TARGET = 30       # how many tracks to request from Claude per decision
 SEED_PLAYLIST_SAMPLE = 15  # max playlist tracks woven into the opening seed queue
 PERSON_REFINE_EVERY = 20   # refine the active person's taste every N decisions
+ENERGY_BIAS_MAX = 3        # clamp for the energy up/down nudge
+STOP_SUPPRESS_SECONDS = 4  # ignore auto-refill briefly after a Stop
+# Rebuild reasons that start a genuinely new session → regenerate the set plan
+# and reset the energy bias. (nudge/energy keep the existing plan.)
+_FRESH_PLAN_REASONS = {"start_radio", "seed_radio", "vibe_change", "person_switch"}
+# Reasons that begin a new *listening session* (reset stats/clock). A vibe change
+# or person switch continues the session; starting radio or a seed begins one.
+_SESSION_START_REASONS = {"start_radio", "seed_radio"}
 
 
 def _time_of_day(now: datetime | None = None) -> str:
@@ -109,16 +118,29 @@ class DJEngine:
         # never by automatic track-change detection — and never persisted.
         self.recent_skips: list[dict[str, Any]] = []
         self.session_started = time.monotonic()
-        self.stats = {"tracks_played": 0, "skips": 0, "discoveries": 0}
+        # A "session" is a listening run: it (re)starts on Start Radio / a seed
+        # song and these counters reset then; Stop ends it. ("added" = tracks the
+        # DJ queued; "new_artists" = distinct artists heard this session.)
+        self.stats = {"tracks_played": 0, "skips": 0, "added": 0, "new_artists": 0}
         # Ordered, de-duplicated track URIs seen this session (for "save as
         # playlist"). dict preserves insertion order and dedupes by key.
         self._session_uris: dict[str, None] = {}
+        # Distinct (lower-cased) artist names introduced this session.
+        self._session_artists: set[str] = set()
         # Per-person decision counter (in-memory) that paces background taste
         # refinement. Keyed by person slug; a restart just delays the next refine.
         self._person_decision_counts: dict[str, int] = {}
         # Strong refs to in-flight background refine tasks so they aren't GC'd
         # mid-run (create_task only keeps a weak reference).
         self._refine_tasks: set[asyncio.Task] = set()
+        # Long-form set plan (the arc) for the current session, generated once on
+        # a fresh session and followed across refill ticks.
+        self._set_plan: SetPlan | None = None
+        self._set_plan_started: float | None = None
+        # Energy up/down nudge, clamped to +/-ENERGY_BIAS_MAX; reset per session.
+        self._energy_bias: int = 0
+        # One-shot "try again, different direction" flag (Nudge DJ).
+        self._reroll: bool = False
 
         self._current_track_id: str | None = None
         self._current_track_started = time.monotonic()
@@ -131,8 +153,17 @@ class DJEngine:
         # Nudge / person switch / seed all clear this). Distinct from _stopping,
         # which is app shutdown.
         self._dj_stopped = False
+        # Monotonic time of the last Stop; for a few seconds after, ignore the
+        # queue_updated/poll refill paths even if something flips _dj_stopped, so
+        # MA's own "queue cleared" event can't spawn a refill tick.
+        self._stopped_at = 0.0
         self._tasks: list[asyncio.Task] = []
         self._stopping = False
+        # Default to the last-used player so the screen opens on it (validated
+        # against availability before any actual playback in _ensure_player).
+        _last = self._load_state().get("last_player")
+        if _last:
+            self._ma.set_player(_last)
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -145,9 +176,17 @@ class DJEngine:
         self._tasks.append(asyncio.create_task(self._poll_loop()))
         if self._config.vibe_input_text_entity:
             self._tasks.append(asyncio.create_task(self._vibe_poll_loop()))
+        if self._config.ha_action_entity:
+            self._tasks.append(asyncio.create_task(self._action_poll_loop()))
         await self._bootstrap_taste()
 
-    async def stop(self) -> None:
+    async def shutdown(self) -> None:
+        """App shutdown: cancel background tasks and close clients.
+
+        Distinct from the user-facing `stop()` (the Stop button). These were both
+        named `stop`, so this one was shadowed and never ran on shutdown — tasks
+        leaked until the process died.
+        """
         self._stopping = True
         for task in self._tasks:
             task.cancel()
@@ -208,7 +247,7 @@ class DJEngine:
                 return
 
         _LOGGER.debug("queue_updated: items_remaining=%s enqueuing=%s", remaining, self._enqueuing)
-        if self._dj_stopped:
+        if self._dj_stopped or (time.monotonic() - self._stopped_at) < STOP_SUPPRESS_SECONDS:
             return  # user pressed Stop — don't auto-refill until they restart
         if self._enqueuing:
             return  # suppress ticks during our own enqueue batch
@@ -227,6 +266,10 @@ class DJEngine:
             try:
                 queue = await self._ma.get_queue()
                 self._note_track_change(queue)
+                # Respect a user Stop (and its brief suppression window) before
+                # doing anything else.
+                if self._dj_stopped or (time.monotonic() - self._stopped_at) < STOP_SUPPRESS_SECONDS:
+                    continue
                 # Don't poll-fill while idle/stopped — only top up an active
                 # session. (_run_decision enforces the same gate, but skipping
                 # here avoids waking the decision lock every interval for nothing.)
@@ -247,6 +290,69 @@ class DJEngine:
                 # Same behavior as the Set Vibe button: rebuild the queue now.
                 asyncio.create_task(self.set_vibe(value))
             await asyncio.sleep(15)
+
+    async def _action_poll_loop(self) -> None:
+        """Let HA automations drive the DJ via an input_text/input_select helper.
+
+        Set the helper to one of: play, stop, skip, next, previous, nudge,
+        energy up / energy down, "vibe: <text>", or "player: <name-or-id>".
+        Acting on *change* means an automation just writes the helper (e.g. an
+        office button -> input_text). The value is acted on once per change.
+        """
+        entity = self._config.ha_action_entity
+        last: str | None = None
+        while not self._stopping:
+            try:
+                value = (await self._ha.get_state_value(entity) or "").strip()
+                if value and value != last:
+                    last = value
+                    _LOGGER.info("HA action from %s: %s", entity, value)
+                    asyncio.create_task(self._dispatch_action(value))
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Action poll error: %s", err)
+            await asyncio.sleep(5)
+
+    async def _dispatch_action(self, value: str) -> None:
+        """Map an HA helper value to a DJ action."""
+        v = value.strip()
+        low = v.lower()
+        try:
+            if low in ("play", "start", "start_radio"):
+                await self.start_radio()
+            elif low == "stop":
+                await self.stop()
+            elif low in ("skip", "next"):
+                await self.skip()
+            elif low in ("previous", "prev"):
+                await self.previous_track()
+            elif low == "nudge":
+                await self.nudge()
+            elif low in ("energy up", "energy_up", "louder", "more energy"):
+                await self.nudge_energy("up")
+            elif low in ("energy down", "energy_down", "calmer", "less energy"):
+                await self.nudge_energy("down")
+            elif ":" in v and low.split(":", 1)[0].strip() in ("vibe", "mood"):
+                await self.set_vibe(v.split(":", 1)[1].strip())
+            elif ":" in v and low.split(":", 1)[0].strip() in ("player", "play_on", "speaker"):
+                await self._select_player_by_name(v.split(":", 1)[1].strip())
+            else:
+                # Bare text → treat as a vibe.
+                await self.set_vibe(v)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("HA action '%s' failed: %s", v, err)
+
+    async def _select_player_by_name(self, name_or_id: str) -> None:
+        """Resolve an HA-supplied player name/id to a real player and switch to it."""
+        target = name_or_id.strip().lower()
+        try:
+            for p in await self._ma.get_players():
+                if not p.get("available"):
+                    continue
+                if target in (str(p.get("player_id", "")).lower(), str(p.get("name", "")).lower()):
+                    await self.select_player(p["player_id"])
+                    return
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not select player '%s': %s", name_or_id, err)
 
     # ------------------------------------------------------------------ #
     # Track-change bookkeeping
@@ -290,6 +396,94 @@ class DJEngine:
         return _track_uri(self._last_current)
 
     # ------------------------------------------------------------------ #
+    # Set plan (long-form arc) + ambient context
+    # ------------------------------------------------------------------ #
+    def _set_plan_dict(self) -> dict[str, Any] | None:
+        if not self._set_plan or not self._set_plan.phases:
+            return None
+        return {
+            "arc_note": self._set_plan.arc_note,
+            "phases": [p.model_dump() for p in self._set_plan.phases],
+        }
+
+    def _arc_position(self) -> dict[str, Any] | None:
+        """Where we are in the set plan: elapsed, %through, current phase."""
+        if not self._set_plan or not self._set_plan.phases or self._set_plan_started is None:
+            return None
+        elapsed = (time.monotonic() - self._set_plan_started) / 60.0
+        total = sum(max(1, p.approx_minutes) for p in self._set_plan.phases) or 1
+        cum = 0.0
+        current = self._set_plan.phases[-1].name
+        for p in self._set_plan.phases:
+            cum += max(1, p.approx_minutes)
+            if elapsed <= cum:
+                current = p.name
+                break
+        return {
+            "elapsed_minutes": round(elapsed),
+            "pct_through": round(min(1.0, elapsed / total) * 100),
+            "current_phase": current,
+        }
+
+    async def _weather_context(self) -> dict[str, Any]:
+        """Optional outside weather/temperature from configured HA entities."""
+        out: dict[str, Any] = {}
+        we = (getattr(self._config, "weather_entity", "") or "").strip()
+        te = (getattr(self._config, "temperature_entity", "") or "").strip()
+        try:
+            if we:
+                v = await self._ha.get_state_value(we)
+                if v:
+                    out["weather"] = v
+            if te:
+                v = await self._ha.get_state_value(te)
+                if v:
+                    out["outside_temp"] = v
+        except Exception:  # noqa: BLE001
+            pass  # weather is a nice-to-have; never block a decision on it
+        return out
+
+    async def _generate_set_plan(self, reason: str, seed_label: str | None) -> None:
+        """Generate the session's long-form arc once, at the start of a session."""
+        person = self._users.active
+        driver = (
+            f"seed track: {seed_label}" if seed_label
+            else (f"vibe: {self.vibe_prompt}" if self.vibe_prompt else "the listener's taste")
+        )
+        plan_ctx: dict[str, Any] = {
+            "driver": driver,
+            "vibe_prompt": self.vibe_prompt or None,
+            "seed_track": seed_label,
+            "listener": person.name,
+            "taste_profile": (person.summary or self._taste.summary or "")[:600],
+            "time_of_day": _time_of_day(),
+            "month": month_bucket(),
+            "reason": reason,
+        }
+        plan_ctx.update(await self._weather_context())
+        try:
+            plan = await self._brain.plan_set(plan_ctx)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Set plan generation failed: %s", err)
+            self._set_plan = None
+            self._set_plan_started = None
+            return
+        self._set_plan = plan
+        self._set_plan_started = time.monotonic()
+        if plan and plan.phases:
+            _LOGGER.info(
+                "Set plan (%s): %s", reason, " -> ".join(p.name for p in plan.phases)
+            )
+
+    def _reset_session(self) -> None:
+        """Start a fresh listening session: reset the clock, stats and dedupe."""
+        self.session_started = time.monotonic()
+        self._session_uris.clear()
+        self._session_artists = set()
+        self.stats = {"tracks_played": 0, "skips": 0, "added": 0, "new_artists": 0}
+        _LOGGER.info("New listening session started")
+
+    # ------------------------------------------------------------------ #
     # Decision cycle
     # ------------------------------------------------------------------ #
     async def build_context(
@@ -324,8 +518,15 @@ class DJEngine:
             "time_of_day": tod,
             "time_context": {"time_of_day": tod, "month": month},
             "listening_duration_mins": duration_mins,
+            "energy_bias": self._energy_bias,
+            "set_plan": self._set_plan_dict(),
+            "arc_position": self._arc_position(),
             "tracks_to_add": QUEUE_TARGET,
         }
+        # Optional ambient signals (skipped cleanly when unconfigured).
+        ctx.update(await self._weather_context())
+        if self._reroll:
+            ctx["reroll"] = True
         if fresh_start:
             ctx["fresh_start"] = True
             if seed_label:
@@ -490,12 +691,19 @@ class DJEngine:
                 await self._ma.ensure_playing()
             for track in enqueued:
                 self._remember_uri(track.get("uri"))
-            self.stats["discoveries"] += len(enqueued)
+            self.stats["added"] += len(enqueued)
+            # Track distinct artists introduced this session (variety metric).
+            for t in decision.next_tracks:
+                artist = t.query.split(" - ", 1)[0].strip().lower()
+                if artist:
+                    self._session_artists.add(artist)
+            self.stats["new_artists"] = len(self._session_artists)
 
             entry = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "reason": reason,
                 "dj_note": decision.dj_note,
+                "vibe_reading": decision.vibe_reading.model_dump(),
                 "mood_shift": decision.mood_shift,
                 "mood_shift_reason": decision.mood_shift_reason,
                 "tracks": [
@@ -559,17 +767,20 @@ class DJEngine:
         goes through `_rebuild`, which lifts the parked flag.
         """
         self._dj_stopped = True
+        self._stopped_at = time.monotonic()  # belt-and-suspenders refill guard
         self._radio_seed_label = None
         # Cancel any in-flight auto-fill so a debounced tick can't refill after
         # we clear the queue.
         if self._pending_tick and not self._pending_tick.done():
             self._pending_tick.cancel()
-        stopped = await self._ma.stop()
-        await self._ma.clear_queue()
+        # Stop AND clear EVERY active queue, not just the selected one — the
+        # player actually playing may differ from the selected one, which is why
+        # Stop used to "keep playing".
+        stopped = await self._ma.stop_all()
         # Re-baseline track tracking so a later restart starts clean.
         self._current_track_id = None
         self._last_current = None
-        _LOGGER.info("DJ stopped by user — playback halted and queue cleared")
+        _LOGGER.info("DJ stopped by user — all active queues halted and cleared")
         return {"ok": True, "stopped": stopped}
 
     async def _rebuild(
@@ -618,6 +829,13 @@ class DJEngine:
         # continuation of whatever was playing before the clear.
         self._current_track_id = None
         self._last_current = None
+        # Beginning a listening session (Start Radio / seed) → reset stats+clock.
+        if reason in _SESSION_START_REASONS:
+            self._reset_session()
+        # A genuinely new session → plan the long-form arc and reset energy bias.
+        if reason in _FRESH_PLAN_REASONS:
+            self._energy_bias = 0
+            await self._generate_set_plan(reason, seed_label=seed_label)
         if seed_uri:
             # Play the hand-picked seed now; Claude appends the station after it.
             # Remember the seed so later auto-refills keep the station on-theme.
@@ -647,8 +865,26 @@ class DJEngine:
         return await self._rebuild("seed_radio", seed_uri=uri, seed_label=label.strip() or None)
 
     async def nudge(self) -> dict[str, Any]:
-        """Tear down the current queue and rebuild a fresh set with the live vibe."""
-        return await self._rebuild("nudge")
+        """Re-roll: 'you got it wrong, try something else.'
+
+        Rebuilds the queue but signals Claude to take a deliberately DIFFERENT
+        direction (genre/energy/feel) than what just played — not a same-vibe
+        refresh. Keeps the session's set plan.
+        """
+        self._reroll = True
+        try:
+            return await self._rebuild("nudge")
+        finally:
+            self._reroll = False
+
+    async def nudge_energy(self, direction: str) -> dict[str, Any]:
+        """Push the next block calmer ('down') or more energetic ('up')."""
+        delta = {"up": 1, "down": -1}.get(direction)
+        if delta is None:
+            return {"ok": False, "error": "direction must be 'up' or 'down'"}
+        self._energy_bias = max(-ENERGY_BIAS_MAX, min(ENERGY_BIAS_MAX, self._energy_bias + delta))
+        _LOGGER.info("Energy bias -> %+d (%s)", self._energy_bias, direction)
+        return await self._rebuild("energy")
 
     async def set_vibe(self, prompt: str) -> dict[str, Any]:
         """Set the active vibe, remember it for this person + time of day, rebuild."""
@@ -665,6 +901,19 @@ class DJEngine:
     # ------------------------------------------------------------------ #
     def list_users(self) -> list[dict[str, Any]]:
         return self._users.people()
+
+    def user_taste_profiles(self) -> list[dict[str, Any]]:
+        """Read-only view of each person's LEARNED taste (for the hidden viewer)."""
+        out: list[dict[str, Any]] = []
+        for p in self._users.people():
+            person = self._users._people.get(p["slug"])  # noqa: SLF001
+            out.append({
+                "slug": p["slug"],
+                "name": p["name"],
+                "active": p["active"],
+                "summary": (person.summary if person else "") or "(still learning — like/block tracks to teach it)",
+            })
+        return out
 
     async def select_user(self, slug: str) -> dict[str, Any]:
         if not self._users.select(slug):
@@ -686,6 +935,18 @@ class DJEngine:
             return {"ok": False, "error": "Name is required."}
         person = self._users.add_person(name)
         return {"ok": True, "slug": person.slug, "name": person.name}
+
+    def rename_user(self, slug: str, name: str) -> dict[str, Any]:
+        if not name.strip():
+            return {"ok": False, "error": "Name is required."}
+        if not self._users.rename(slug, name):
+            return {"ok": False, "error": f"Unknown person: {slug}"}
+        return {"ok": True, "slug": slug, "name": name.strip()}
+
+    def delete_user(self, slug: str) -> dict[str, Any]:
+        if not self._users.remove(slug):
+            return {"ok": False, "error": "Can't delete (unknown or the last person)."}
+        return {"ok": True, "active": self._users.active_slug}
 
     # ------------------------------------------------------------------ #
     # Per-person taste learning (background)
@@ -716,13 +977,81 @@ class DJEngine:
     # Players
     # ------------------------------------------------------------------ #
     async def list_players(self) -> list[dict[str, Any]]:
-        players = await self._ma.get_players()
+        # Only surface players that are actually available — never offer one the
+        # user can't play on (which would just fail).
+        players = [p for p in await self._ma.get_players() if p.get("available")]
         for p in players:
             p["selected"] = p["player_id"] == self._ma.selected_player_id
         return players
 
-    def select_player(self, player_id: str) -> None:
+    async def select_player(self, player_id: str) -> dict[str, Any]:
+        """Switch the target player. If music is playing, TRANSFER the queue to
+        the new player and resume — no interruption (like MA's Transfer Queue)."""
+        old = self._ma.selected_player_id
+        # Snapshot the live queue (current + upcoming, by uri) if we're playing.
+        snapshot: list[str] | None = None
+        try:
+            state = await self._ma.get_play_state()
+            if old and old != player_id and state in ("playing", "paused"):
+                q = await self._ma.get_queue()
+                uris: list[str] = []
+                cu = _track_uri(q.get("current_item"))
+                if cu:
+                    uris.append(cu)
+                for it in (q.get("items") or []):
+                    u = _track_uri(it)
+                    if u:
+                        uris.append(u)
+                snapshot = uris
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Prefer MA's native transfer (preserves the exact position).
+        if snapshot is not None and await self._ma.transfer_queue(player_id):
+            self._ma.set_player(player_id)
+            self._save_state(last_player=player_id)
+            return {"ok": True, "player_id": player_id, "transferred": "native"}
+
+        # Otherwise move the selection and re-create the queue on the new player.
         self._ma.set_player(player_id)
+        self._save_state(last_player=player_id)
+        if snapshot:
+            if old:
+                await self._ma.stop_player(old)  # don't leave two players playing
+            await self._ma.clear_queue()
+            for i, u in enumerate(snapshot):
+                await self._ma.enqueue_uri(u, "play" if i == 0 else "add")
+            await self._ma.ensure_playing()
+            return {"ok": True, "player_id": player_id, "transferred": "reenqueue"}
+        return {"ok": True, "player_id": player_id, "transferred": False}
+
+    async def set_volume(self, level: int) -> dict[str, Any]:
+        ok = await self._ma.set_volume(level)
+        return {"ok": ok, "volume": max(0, min(100, int(level)))}
+
+    async def previous_track(self) -> dict[str, Any]:
+        return {"ok": await self._ma.previous()}
+
+    # -- persistent engine state (last-used player, etc.) -----------------
+    def _state_path(self):
+        return self._config.data_dir / "state.json"
+
+    def _load_state(self) -> dict[str, Any]:
+        try:
+            p = self._state_path()
+            if p.exists():
+                return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            pass
+        return {}
+
+    def _save_state(self, **kw: Any) -> None:
+        try:
+            data = self._load_state()
+            data.update(kw)
+            self._state_path().write_text(json.dumps(data), encoding="utf-8")
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Could not persist engine state: %s", err)
 
     async def pause(self) -> dict[str, Any]:
         ok = await self._ma.pause()
@@ -735,11 +1064,19 @@ class DJEngine:
         player state: a stale "playing" read just after a pause would send pause
         again (or vice versa), so resume appeared to do nothing. MA's play_pause
         flips based on its own authoritative state in one call, which also
-        resumes a paused queue more reliably than a bare play. The UI updates its
-        icon optimistically, so we don't need to return the resulting state.
+        resumes a paused queue more reliably than a bare play. We return the
+        intended state so the UI can hold the icon during MA's state lag.
         """
+        # Read the current state, flip it, and return the INTENDED state so the
+        # UI can hold the icon briefly (an optimistic lock) instead of letting an
+        # eventually-consistent status poll flip it back and forth.
+        try:
+            prev = (await self._ma.get_play_state()) or ""
+        except Exception:  # noqa: BLE001
+            prev = ""
         ok = await self._ma.play_pause()
-        return {"ok": ok}
+        intended = "paused" if prev == "playing" else "playing"
+        return {"ok": ok, "state": intended}
 
     async def skip(self) -> dict[str, Any]:
         """Skip the current track (the ONLY thing that records a skip).
@@ -766,25 +1103,35 @@ class DJEngine:
         available" warnings in MA until the add-on is restarted.
         """
         players = await self._ma.get_players()
-        player_ids = {p["player_id"] for p in players}
+        avail = [p for p in players if p.get("available")]
+        avail_ids = {p["player_id"] for p in avail}
 
+        # Keep the current selection only if it is still AVAILABLE (not merely
+        # present) — never hand back a player that would fail to play.
         if self._ma.selected_player_id:
-            if self._ma.selected_player_id in player_ids:
+            if self._ma.selected_player_id in avail_ids:
                 return self._ma.selected_player_id
             _LOGGER.warning(
-                "Previously selected player %s is no longer in MA player list — clearing selection",
+                "Selected player %s is no longer available — reselecting",
                 self._ma.selected_player_id,
             )
             self._ma.selected_player_id = None
             self._ma.active_queue_id = None
 
-        # Prefer a player that is actively powered/available over a cold one.
-        available = [p for p in players if p.get("available") and p.get("powered")]
-        chosen = (available or players or [None])[0]
-        if chosen:
-            self._ma.set_player(chosen["player_id"])
+        if not avail:
+            return None  # nothing playable — don't pick an unavailable player
+
+        # Default to the LAST-USED player if it's available again.
+        last = self._load_state().get("last_player")
+        if last and last in avail_ids:
+            self._ma.set_player(last)
             return self._ma.selected_player_id
-        return None
+
+        # Otherwise prefer a powered/active one, else any available player.
+        powered = [p for p in avail if p.get("powered")]
+        chosen = (powered or avail)[0]
+        self._ma.set_player(chosen["player_id"])
+        return self._ma.selected_player_id
 
     # ------------------------------------------------------------------ #
     # Taste seeding
@@ -870,19 +1217,30 @@ class DJEngine:
         return uri, label
 
     async def like_current(self) -> dict[str, Any]:
-        """Favorite the currently playing track (MA syncs it to the track's source
-        provider) and log it to the active person's memory."""
+        """Toggle the like on the current track (Tidal-style heart).
+
+        The per-person like is the source of truth for the heart state; the MA
+        favorite sync is best-effort so the toggle still works if MA rejects it.
+        """
         uri, label = await self._resolve_current()
         if not uri:
             return {"ok": False, "error": "Nothing is playing to like."}
+        person = self._users.active
+        if person.is_liked(uri):
+            try:
+                await self._ma.remove_favorite(uri)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("MA un-favorite failed (keeping local un-like): %s", err)
+            person.remove_like(uri)
+            self._users.save(person)
+            return {"ok": True, "liked": False, "label": label or uri, "person": person.name}
         try:
             await self._ma.add_favorite(uri)
         except Exception as err:  # noqa: BLE001
             return {"ok": False, "error": f"Music Assistant rejected the like: {err}"}
-        person = self._users.active
         person.add_like(label, uri)
         self._users.save(person)
-        return {"ok": True, "liked": label or uri, "person": person.name}
+        return {"ok": True, "liked": True, "label": label or uri, "person": person.name}
 
     async def block_current(self) -> dict[str, Any]:
         """Block the current track for the active person (escalating cooldown) and skip it now."""
@@ -945,20 +1303,30 @@ class DJEngine:
             img = current_item.get("image") or {}
             album_art = img.get("path") or None
 
-        can_act = bool(_track_uri(current_item) or self.current_uri)
+        cur_uri = _track_uri(current_item) or self.current_uri
+        can_act = bool(cur_uri)
+        current_liked = self._users.active.is_liked(cur_uri)
         # Prefer the player's authoritative state so the play/pause icon flips on
         # pause; the queue meta state doesn't always report a pause.
         try:
             player_state = await self._ma.get_play_state()
         except Exception:  # noqa: BLE001
             player_state = queue.get("state")
+        try:
+            volume = await self._ma.get_volume()
+        except Exception:  # noqa: BLE001
+            volume = None
         return {
             "configured": bool(self._config.anthropic_api_key),
             "now_playing": _track_label(current_item),
             "album_art": album_art,
             "player_state": player_state,  # "playing" | "paused" | "idle" | None
+            "volume": volume,              # 0-100 or null
             "dj_stopped": self._dj_stopped,  # user pressed Stop; auto-DJ parked
             "vibe": self.vibe_prompt or None,
+            "current_liked": current_liked,
+            "energy_bias": self._energy_bias,
+            "set_phase": (self._arc_position() or {}).get("current_phase"),
             "time_of_day": _time_of_day(),
             "items_remaining": queue.get("items_remaining", 0),
             "ma_connected": self._ma.is_connected,

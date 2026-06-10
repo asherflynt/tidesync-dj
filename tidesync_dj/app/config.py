@@ -30,6 +30,12 @@ class Config:
     # MA music provider used when saving a session playlist. Blank = auto-detect
     # from the tracks that played; otherwise this forces a specific provider.
     playlist_provider: str
+    # Optional HA entities whose state colours the DJ's mood (blank = ignored).
+    weather_entity: str
+    temperature_entity: str
+    # Optional HA input_text/input_select whose value drives an action (play,
+    # stop, skip, nudge, energy up/down, "vibe: …", "player: …"). Blank = off.
+    ha_action_entity: str
     data_dir: Path
 
     @property
@@ -88,5 +94,8 @@ def load_config() -> Config:
         playlist_provider=str(
             _get("playlist_provider", "") or _get("tidal_provider", "") or "tidal"
         ),
+        weather_entity=str(_get("weather_entity", "") or ""),
+        temperature_entity=str(_get("temperature_entity", "") or ""),
+        ha_action_entity=str(_get("ha_action_entity", "") or ""),
         data_dir=DATA_DIR,
     )

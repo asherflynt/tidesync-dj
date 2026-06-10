@@ -33,10 +33,12 @@ CMD_QUEUES_ALL = "player_queues/all"
 CMD_QUEUE_ITEMS = "player_queues/items"
 CMD_PLAY_MEDIA = "player_queues/play_media"
 CMD_NEXT = "players/cmd/next"
+CMD_PREVIOUS = "players/cmd/previous"
 CMD_PLAY = "players/cmd/play"
 CMD_PAUSE = "players/cmd/pause"
 CMD_PLAY_PAUSE = "players/cmd/play_pause"
 CMD_STOP = "players/cmd/stop"
+CMD_VOLUME_SET = "players/cmd/volume_set"  # args: player_id, volume_level (0-100)
 CMD_SEARCH = "music/search"
 CMD_LIBRARY_TRACKS = "music/tracks/library_items"
 # Queue editing (remove + reorder upcoming items from the dashboard).
@@ -46,7 +48,9 @@ CMD_QUEUE_DELETE = "player_queues/delete_item"
 CMD_QUEUE_MOVE = "player_queues/move_item"
 # Favorites + playlist management (used for "like" and "save session").
 CMD_QUEUE_CLEAR = "player_queues/clear"
+CMD_QUEUE_TRANSFER = "player_queues/transfer"  # native "move queue to player"
 CMD_FAVORITE_ADD = "music/favorites/add_item"
+CMD_FAVORITE_REMOVE = "music/favorites/remove_item"
 CMD_PLAYLIST_CREATE = "music/playlists/create_playlist"
 CMD_PLAYLIST_ADD_TRACKS = "music/playlists/add_playlist_tracks"
 
@@ -404,6 +408,7 @@ class MusicAssistantClient:
             "powered": player.get("powered"),
             "state": player.get("state"),
             "provider": player.get("provider"),
+            "volume_level": player.get("volume_level"),
         }
 
     @staticmethod
@@ -748,6 +753,110 @@ class MusicAssistantClient:
             _LOGGER.warning("Stop failed: %s", err)
             return False
 
+    async def stop_player(self, player_id: str) -> bool:
+        """Stop a SPECIFIC player (used when transferring playback away from it)."""
+        if not player_id:
+            return False
+        try:
+            await self._command(CMD_STOP, player_id=player_id)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("stop_player %s failed: %s", player_id, err)
+            return False
+
+    async def transfer_queue(self, target_player: str) -> bool:
+        """Try MA's NATIVE queue transfer (preserves position). Returns False if
+        the running MA build doesn't support it, so the caller can fall back to
+        re-enqueueing the tracks on the new player."""
+        source = self.active_queue_id or self.selected_player_id
+        if not source or not target_player or source == target_player:
+            return False
+        try:
+            await self._command(
+                CMD_QUEUE_TRANSFER, queue_id=source, target_queue_id=target_player
+            )
+            _LOGGER.info("Transferred queue %s -> %s natively", source, target_player)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.info("Native queue transfer unsupported (%s) — will re-enqueue", err)
+            return False
+
+    async def stop_all(self) -> bool:
+        """Stop AND clear every active (playing/paused) queue, plus the selected.
+
+        The DJ's selected queue isn't always the one actually playing (the user
+        can switch players in MA), so a Stop that targets only the selected queue
+        can leave another player going — the "Stop keeps playing" bug. This stops
+        and clears the selected/active queue and any queue MA reports as
+        playing/paused, so Stop is decisive.
+        """
+        targets: set[str] = set()
+        sel = self.active_queue_id or self.selected_player_id
+        if sel:
+            targets.add(sel)
+        try:
+            queues = await self._command(CMD_QUEUES_ALL) or []
+            for q in queues:
+                if isinstance(q, dict) and q.get("state") in ("playing", "paused"):
+                    qid = self._queue_id_of(q)
+                    if qid:
+                        targets.add(qid)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("stop_all: could not list queues: %s", err)
+        ok = True
+        for qid in targets:
+            try:
+                await self._command(CMD_STOP, player_id=qid)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("stop_all: stop %s failed: %s", qid, err)
+                ok = False
+            try:
+                await self._command(CMD_QUEUE_CLEAR, queue_id=qid)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("stop_all: clear %s failed: %s", qid, err)
+                ok = False
+        _LOGGER.info("stop_all halted/cleared queues: %s", sorted(targets) or "none")
+        return ok
+
+    async def set_volume(self, level: int) -> bool:
+        """Set the active player's volume (0-100)."""
+        player_id = self.active_queue_id or self.selected_player_id
+        if not player_id:
+            return False
+        level = max(0, min(100, int(level)))
+        try:
+            await self._command(CMD_VOLUME_SET, player_id=player_id, volume_level=level)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("set_volume failed: %s", err)
+            return False
+
+    async def get_volume(self) -> int | None:
+        """Read the active player's current volume (0-100), if known."""
+        target = self.selected_player_id or self.active_queue_id
+        if not target:
+            return None
+        try:
+            for player in await self.get_players():
+                if player.get("player_id") == target:
+                    v = player.get("volume_level")
+                    return int(v) if v is not None else None
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    async def previous(self) -> bool:
+        """Skip to the previous track on the active player."""
+        player_id = self.active_queue_id or self.selected_player_id
+        if not player_id:
+            return False
+        try:
+            await self._command(CMD_PREVIOUS, player_id=player_id)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("previous failed: %s", err)
+            return False
+
     async def play_pause(self) -> bool:
         """Atomically toggle play/pause on the active player.
 
@@ -823,6 +932,19 @@ class MusicAssistantClient:
             return True
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("add_favorite failed for %s: %s", uri, err)
+            raise
+
+    async def remove_favorite(self, uri: str) -> bool:
+        """Un-favorite a track in MA (mirrors add_favorite). Used by the heart toggle."""
+        if not uri:
+            return False
+        # MA's remove_item wants the library item type + the uri/id.
+        media_type = uri.split("://", 1)[1].split("/", 1)[0] if "://" in uri else "track"
+        try:
+            await self._command(CMD_FAVORITE_REMOVE, media_type=media_type, library_item_id=uri)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("remove_favorite failed for %s: %s", uri, err)
             raise
 
     async def create_playlist(

@@ -146,6 +146,17 @@ class Person:
         if len(self.likes) > MAX_LIKES:
             self.likes = self.likes[-MAX_LIKES:]
 
+    def remove_like(self, uri: str | None) -> bool:
+        """Remove a like by uri (the un-like half of the heart toggle)."""
+        if not uri:
+            return False
+        before = len(self.likes)
+        self.likes = [lk for lk in self.likes if lk.uri != uri]
+        return len(self.likes) != before
+
+    def is_liked(self, uri: str | None) -> bool:
+        return bool(uri) and any(lk.uri == uri for lk in self.likes)
+
     def add_block(self, label: str | None, uri: str | None) -> None:
         """Block a track, escalating if it has been blocked before.
 
@@ -486,3 +497,27 @@ class UserStore:
         self._people[slug] = person
         self._write(person)
         return person
+
+    def rename(self, slug: str, name: str) -> bool:
+        """Change a person's display NAME only — slug/file stay stable so all
+        learned data (keyed by slug) is preserved. Names are free-text."""
+        person = self._people.get(slug)
+        if person is None or not name.strip():
+            return False
+        person.name = name.strip()
+        self._write(person)
+        return True
+
+    def remove(self, slug: str) -> bool:
+        """Delete a person and their file. Refuses to remove the last person."""
+        if slug not in self._people or len(self._people) <= 1:
+            return False
+        self._people.pop(slug, None)
+        try:
+            self._path_for(slug).unlink(missing_ok=True)
+        except OSError as err:  # noqa: BLE001
+            _LOGGER.warning("Could not delete memory for %s: %s", slug, err)
+        if self._active_slug == slug:
+            self._active_slug = next(iter(self._people))
+            self._save_active()
+        return True
