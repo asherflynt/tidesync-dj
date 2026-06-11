@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+
+### Clearer energy controls
+- The two energy-adjuster buttons beside **Set Vibe** now use a small flame
+  (less energy) and a large flame (more energy) instead of two near-identical
+  trend-line squiggles that gave no sense of direction.
+
 ## 1.0.0
 
 First stable release. Highlights since 0.6:
