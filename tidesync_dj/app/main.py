@@ -46,6 +46,7 @@ async def lifespan(app: FastAPI):
         username=config.ma_username,
         password=config.ma_password,
         token=config.ma_token,
+        preferred_provider=config.playlist_provider,
     )
     ha = HAClient()
     brain = ClaudeBrain(config.anthropic_api_key, config.claude_model)

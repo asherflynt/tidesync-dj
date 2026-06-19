@@ -39,9 +39,12 @@ STOP_SUPPRESS_SECONDS = 4  # ignore auto-refill briefly after a Stop
 # Rebuild reasons that start a genuinely new session → regenerate the set plan
 # and reset the energy bias. (nudge/energy keep the existing plan.)
 _FRESH_PLAN_REASONS = {"start_radio", "seed_radio", "vibe_change", "person_switch"}
-# Reasons that begin a new *listening session* (reset stats/clock). A vibe change
-# or person switch continues the session; starting radio or a seed begins one.
-_SESSION_START_REASONS = {"start_radio", "seed_radio"}
+# Reasons that begin a new *listening session* (reset stats/clock). Starting
+# radio, a seed, or a Set Vibe begins one; a person switch continues the session.
+_SESSION_START_REASONS = {"start_radio", "seed_radio", "vibe_change"}
+# A listening session also ends on its own after this long with no playback, so
+# the next song you put on starts fresh stats instead of continuing yesterday's.
+IDLE_SESSION_RESET_SECONDS = 2 * 60 * 60
 
 
 def _time_of_day(now: datetime | None = None) -> str:
@@ -68,6 +71,18 @@ def _track_uri(item: dict[str, Any] | None) -> str | None:
         return None
     media = item.get("media_item") or item
     return media.get("uri") or item.get("uri")
+
+
+def _track_artist(item: dict[str, Any] | None) -> str | None:
+    """Primary artist name from a queue item / media item (either shape)."""
+    if not item:
+        return None
+    media = item.get("media_item") or item
+    artists = media.get("artists") or []
+    first = artists[0] if artists else None
+    if first:
+        return first.get("name") if isinstance(first, dict) else first
+    return media.get("artist")
 
 
 def _provider_of(uri: str) -> str | None:
@@ -118,15 +133,22 @@ class DJEngine:
         # never by automatic track-change detection — and never persisted.
         self.recent_skips: list[dict[str, Any]] = []
         self.session_started = time.monotonic()
-        # A "session" is a listening run: it (re)starts on Start Radio / a seed
-        # song and these counters reset then; Stop ends it. ("added" = tracks the
-        # DJ queued; "new_artists" = distinct artists heard this session.)
+        # Last time playback was observed active — drives the idle auto-reset so a
+        # session that has been paused/idle past IDLE_SESSION_RESET_SECONDS ends
+        # and the next track you play starts a clean one.
+        self._last_active = time.monotonic()
+        # A "session" is a listening run: it (re)starts on Start Radio / a seed /
+        # Set Vibe and these counters reset then; Stop or a long idle ends it.
+        # "added"/"new_artists" reflect what ACTUALLY PLAYED — see _note_track_change
+        # — not what was queued, so unplayable tracks never inflate them.
         self.stats = {"tracks_played": 0, "skips": 0, "added": 0, "new_artists": 0}
-        # Ordered, de-duplicated track URIs seen this session (for "save as
-        # playlist"). dict preserves insertion order and dedupes by key.
+        # Ordered, de-duplicated track URIs the DJ has QUEUED this session — used
+        # to avoid re-queuing the same track. dict preserves order + dedupes.
         self._session_uris: dict[str, None] = {}
-        # Distinct (lower-cased) artist names introduced this session.
-        self._session_artists: set[str] = set()
+        # Distinct URIs / artists that ACTUALLY started playing this session.
+        # These back the "songs heard" and "artists" stats and the saved playlist.
+        self._played_uris: dict[str, None] = {}
+        self._played_artists: set[str] = set()
         # Per-person decision counter (in-memory) that paces background taste
         # refinement. Keyed by person slug; a restart just delays the next refine.
         self._person_decision_counts: dict[str, int] = {}
@@ -266,6 +288,10 @@ class DJEngine:
             try:
                 queue = await self._ma.get_queue()
                 self._note_track_change(queue)
+                # Keep the idle-reset clock fresh while music is actually playing,
+                # even across a single long track (no track-change event fires).
+                if queue.get("state") == "playing":
+                    self._last_active = time.monotonic()
                 # Respect a user Stop (and its brief suppression window) before
                 # doing anything else.
                 if self._dj_stopped or (time.monotonic() - self._stopped_at) < STOP_SUPPRESS_SECONDS:
@@ -379,13 +405,29 @@ class DJEngine:
         if track_id is None or track_id == self._current_track_id:
             return
 
+        now = time.monotonic()
+        # A long idle/paused gap ends the previous session; the song now starting
+        # begins a fresh one. Re-baseline so it isn't counted as an "advance".
+        if (now - self._last_active) > IDLE_SESSION_RESET_SECONDS:
+            self._reset_session()
+            self._current_track_id = None
+
         # A genuine advance to a new track.
         if self._current_track_id is not None:
             self.stats["tracks_played"] += 1
         self._current_track_id = track_id
-        self._current_track_started = time.monotonic()
+        self._current_track_started = now
+        self._last_active = now
         self._last_current = current
-        self._remember_uri(_track_uri(current))
+        self._remember_uri(track_id)
+        # Stats that should reflect what was ACTUALLY HEARD (incl. this session's
+        # first track) — never inflated by queued-but-unplayable tracks.
+        self._played_uris[track_id] = None
+        artist = _track_artist(current)
+        if artist:
+            self._played_artists.add(artist.strip().lower())
+        self.stats["added"] = len(self._played_uris)
+        self.stats["new_artists"] = len(self._played_artists)
 
     def _remember_uri(self, uri: str | None) -> None:
         if uri:
@@ -478,8 +520,10 @@ class DJEngine:
     def _reset_session(self) -> None:
         """Start a fresh listening session: reset the clock, stats and dedupe."""
         self.session_started = time.monotonic()
+        self._last_active = time.monotonic()
         self._session_uris.clear()
-        self._session_artists = set()
+        self._played_uris.clear()
+        self._played_artists = set()
         self.stats = {"tracks_played": 0, "skips": 0, "added": 0, "new_artists": 0}
         _LOGGER.info("New listening session started")
 
@@ -691,13 +735,9 @@ class DJEngine:
                 await self._ma.ensure_playing()
             for track in enqueued:
                 self._remember_uri(track.get("uri"))
-            self.stats["added"] += len(enqueued)
-            # Track distinct artists introduced this session (variety metric).
-            for t in decision.next_tracks:
-                artist = t.query.split(" - ", 1)[0].strip().lower()
-                if artist:
-                    self._session_artists.add(artist)
-            self.stats["new_artists"] = len(self._session_artists)
+            # NOTE: the "added"/"artists" stats are NOT bumped here. They count
+            # what actually PLAYS (see _note_track_change) so tracks that MA
+            # accepts but then can't stream never inflate the numbers.
 
             entry = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -1058,24 +1098,35 @@ class DJEngine:
         return {"ok": ok}
 
     async def toggle_playback(self) -> dict[str, Any]:
-        """Toggle play/pause using MA's atomic play_pause command.
+        """Toggle play/pause using MA's queue-level transport.
 
-        The previous read-then-decide approach raced MA's eventually-consistent
-        player state: a stale "playing" read just after a pause would send pause
-        again (or vice versa), so resume appeared to do nothing. MA's play_pause
-        flips based on its own authoritative state in one call, which also
-        resumes a paused queue more reliably than a bare play. We return the
-        intended state so the UI can hold the icon during MA's state lag.
+        Two failure modes of the old player-level `play_pause` are handled here:
+          * It targeted the *selected* player even when a different queue was the
+            one actually playing (group / user-switched-in-MA). We resolve the
+            queue MA reports as active first.
+          * It could not resume a queue MA had let go **idle/stopped** after a
+            long pause — `play_pause` from idle is a no-op. We detect idle and
+            send `resume` instead.
+        The playing/paused distinction is the only eventually-consistent part;
+        idle vs active is stable, so reading state to branch is safe. We return
+        the INTENDED state so the UI can hold the icon during MA's state lag.
         """
-        # Read the current state, flip it, and return the INTENDED state so the
-        # UI can hold the icon briefly (an optimistic lock) instead of letting an
-        # eventually-consistent status poll flip it back and forth.
         try:
-            prev = (await self._ma.get_play_state()) or ""
+            queue_id, state = await self._ma.get_active_queue()
         except Exception:  # noqa: BLE001
-            prev = ""
-        ok = await self._ma.play_pause()
-        intended = "paused" if prev == "playing" else "playing"
+            queue_id, state = (None, None)
+        state = (state or "").lower()
+
+        if state == "playing":
+            ok = await self._ma.queue_pause(queue_id)
+            intended = "paused"
+        elif state == "paused":
+            ok = await self._ma.queue_play(queue_id)
+            intended = "playing"
+        else:
+            # idle / stopped / unknown — resume the queue from where it left off.
+            ok = await self._ma.queue_resume(queue_id) if queue_id else False
+            intended = "playing"
         return {"ok": ok, "state": intended}
 
     async def skip(self) -> dict[str, Any]:
@@ -1260,7 +1311,7 @@ class DJEngine:
     async def save_session_playlist(self, name: str) -> dict[str, Any]:
         """Create a playlist (on whatever music source the session played) from the
         tracks heard this session."""
-        uris = list(self._session_uris.keys())
+        uris = list(self._played_uris.keys())
         if not uris:
             return {"ok": False, "error": "No tracks have played yet this session."}
         name = name.strip() or datetime.now().strftime("TideSync %Y-%m-%d %H:%M")
@@ -1334,7 +1385,7 @@ class DJEngine:
             "ma_host": self._config.ma_host,
             "selected_player_id": self._ma.selected_player_id,
             "taste_seeded": self._taste.is_bootstrapped,
-            "session_track_count": len(self._session_uris),
+            "session_track_count": len(self._played_uris),
             "can_like": can_act,
             "can_block": can_act,
             "people": self._users.people(),

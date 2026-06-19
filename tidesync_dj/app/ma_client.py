@@ -38,6 +38,13 @@ CMD_PLAY = "players/cmd/play"
 CMD_PAUSE = "players/cmd/pause"
 CMD_PLAY_PAUSE = "players/cmd/play_pause"
 CMD_STOP = "players/cmd/stop"
+# Queue-level transport (preferred for play/pause: these act through MA's queue
+# controller, which resumes an idle/stopped queue reliably — the player-level
+# play_pause can't resume a player MA has let go idle after a long pause).
+CMD_QUEUE_PLAY = "player_queues/play"
+CMD_QUEUE_PAUSE = "player_queues/pause"
+CMD_QUEUE_PLAY_PAUSE = "player_queues/play_pause"
+CMD_QUEUE_RESUME = "player_queues/resume"
 CMD_VOLUME_SET = "players/cmd/volume_set"  # args: player_id, volume_level (0-100)
 CMD_SEARCH = "music/search"
 CMD_LIBRARY_TRACKS = "music/tracks/library_items"
@@ -69,11 +76,15 @@ class MusicAssistantClient:
         username: str = "",
         password: str = "",
         token: str = "",
+        preferred_provider: str = "",
     ) -> None:
         self._ws_url = ws_url
         self._username = username
         self._password = password
         self._token = token
+        # Provider to prefer when several search hits resolve the same song
+        # (e.g. "tidal") — a streamable original beats another provider's hit.
+        self._preferred_provider = (preferred_provider or "").strip().lower()
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._msg_ids = itertools.count(1)
         self._pending: dict[str, asyncio.Future] = {}
@@ -551,14 +562,37 @@ class MusicAssistantClient:
         history = items[max(0, idx - n):idx]
         return history
 
+    def _rank_track(self, track: dict[str, Any], order: int) -> tuple[int, int]:
+        """Sort key for a search candidate (lower = better).
+
+        Keeps MA's relevance order as the primary signal, but — all else equal —
+        prefers a hit on the configured provider (e.g. tidal) so favourites sync
+        and saved playlists stay on one source. We intentionally do NOT second-
+        guess track *versions*: a "(Remastered)" hit is just as playable as any
+        other, and the rare playback failure was a stale Tidal catalog ID, not
+        the edition.
+        """
+        media = track.get("media_item") or track
+        uri = str(media.get("uri") or track.get("uri") or "")
+        provider = uri.split("://", 1)[0].lower() if "://" in uri else ""
+        provider_penalty = (
+            0 if (self._preferred_provider and provider == self._preferred_provider) else 1
+        )
+        return (provider_penalty, order)
+
     async def search_track(self, query: str) -> dict[str, Any] | None:
-        """Search MA for a track matching a free-text query."""
+        """Search MA for a track matching a free-text query.
+
+        Returns the first *usable* candidate (one that has a uri), preferring the
+        configured provider — rather than blindly taking `tracks[0]`, which may
+        lack a uri or sit on a non-preferred provider.
+        """
         try:
             result = await self._command(
                 CMD_SEARCH,
                 search_query=query,
                 media_types=["track"],
-                limit=3,
+                limit=5,
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("MA search failed for %r: %s", query, err)
@@ -566,7 +600,16 @@ class MusicAssistantClient:
         if not result:
             return None
         tracks = result.get("tracks") if isinstance(result, dict) else result
-        return tracks[0] if tracks else None
+        candidates = [
+            t for t in (tracks or [])
+            if (t.get("media_item") or t).get("uri") or t.get("uri")
+        ]
+        if not candidates:
+            return None
+        ranked = sorted(
+            enumerate(candidates), key=lambda io: self._rank_track(io[1], io[0])
+        )
+        return ranked[0][1]
 
     async def search_tracks(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
         """Search MA for tracks and return normalised view dicts for the UI."""
@@ -773,7 +816,10 @@ class MusicAssistantClient:
             return False
         try:
             await self._command(
-                CMD_QUEUE_TRANSFER, queue_id=source, target_queue_id=target_player
+                CMD_QUEUE_TRANSFER,
+                source_queue_id=source,
+                target_queue_id=target_player,
+                auto_play=True,
             )
             _LOGGER.info("Transferred queue %s -> %s natively", source, target_player)
             return True
@@ -897,6 +943,63 @@ class MusicAssistantClient:
             return str(state).lower() if state else None
         except Exception:  # noqa: BLE001
             return None
+
+    async def get_active_queue(self) -> tuple[str | None, str | None]:
+        """Resolve the queue to control for play/pause and its current state.
+
+        Returns (queue_id, state). Prefers the selected player's own queue when
+        it is playing/paused; otherwise falls back to whichever queue MA reports
+        as playing/paused (the user may be playing on a different player/group —
+        the same mismatch `stop_all` handles for Stop). When nothing is
+        active, returns the selected/active queue with its state (often idle).
+        """
+        selected = self.selected_player_id or self.active_queue_id
+        try:
+            queues = await self._command(CMD_QUEUES_ALL) or []
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("get_active_queue: could not list queues: %s", err)
+            return selected, None
+
+        def _state_of(qid: str) -> str | None:
+            for q in queues:
+                if isinstance(q, dict) and self._queue_id_of(q) == qid:
+                    s = q.get("state")
+                    return str(s).lower() if s else None
+            return None
+
+        # 1) selected queue, if it's the one actually playing/paused.
+        if selected and _state_of(selected) in ("playing", "paused"):
+            return selected, _state_of(selected)
+        # 2) any queue MA reports as playing/paused.
+        for q in queues:
+            if isinstance(q, dict) and str(q.get("state") or "").lower() in ("playing", "paused"):
+                qid = self._queue_id_of(q)
+                if qid:
+                    return qid, str(q.get("state")).lower()
+        # 3) nothing active — return the selected queue and its (likely idle) state.
+        return selected, (_state_of(selected) if selected else None)
+
+    async def queue_pause(self, queue_id: str) -> bool:
+        """Pause a specific queue via the queue controller."""
+        return await self._queue_cmd(CMD_QUEUE_PAUSE, queue_id)
+
+    async def queue_play(self, queue_id: str) -> bool:
+        """Resume/play a specific queue via the queue controller."""
+        return await self._queue_cmd(CMD_QUEUE_PLAY, queue_id)
+
+    async def queue_resume(self, queue_id: str) -> bool:
+        """Resume a stopped/idle queue from where it left off."""
+        return await self._queue_cmd(CMD_QUEUE_RESUME, queue_id)
+
+    async def _queue_cmd(self, command: str, queue_id: str) -> bool:
+        if not queue_id:
+            return False
+        try:
+            await self._command(command, queue_id=queue_id)
+            return True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("%s failed for %s: %s", command, queue_id, err)
+            return False
 
     async def skip(self) -> bool:
         queue = await self.get_queue()

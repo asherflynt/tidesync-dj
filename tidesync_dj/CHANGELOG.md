@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.2.0
+
+### Seamless speaker switching
+- Switching the speaker mid-song now **transfers the queue in place** instead of
+  restarting the track. The native Music Assistant transfer was being called with
+  the wrong argument name and always fell back to clearing + re-queuing (which
+  reset the song to 0:00); it now preserves the exact playback position.
+
+### More reliable play/pause
+- Play/pause is now driven through Music Assistant's **queue-level transport** and
+  targets the queue that's actually playing (not just the selected player, which
+  could differ for groups or when you switched players in MA).
+- It now **resumes a queue MA had let go idle** after a long pause — previously a
+  press did nothing because the player-level toggle can't resume from idle.
+
+### Session stats that reflect reality
+- A new listening session now also begins on **Set Vibe**, and a session
+  **auto-ends after 2 hours** with no playback — so the numbers reflect your
+  current sitting instead of accumulating for days.
+- **"songs heard"** (formerly "tracks added") and **"artists"** now count what
+  *actually played*, not what was queued. Tracks Music Assistant accepts but then
+  can't stream (e.g. region-locked versions) no longer inflate the counts, and a
+  saved session playlist contains only songs that were really heard.
+
+### Track resolution
+- Track search now returns the first **usable** candidate (one with a playable
+  URI) and, all else equal, prefers your **configured provider** — instead of
+  blindly taking the top hit. (Rare playback failures from stale Tidal catalog
+  IDs are a provider-side issue; Music Assistant skips and the DJ refills.)
+
 ## 1.1.1
 
 ### Clearer energy controls
