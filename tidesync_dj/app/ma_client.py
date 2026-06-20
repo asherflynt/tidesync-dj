@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import json
 import logging
+import re
 from typing import Any, Awaitable, Callable
 
 import websockets
@@ -132,9 +134,6 @@ class MusicAssistantClient:
         (172.30.32.1 on stock HA OS).  Try that first; fall back to the
         configured URL if it doesn't answer.
         """
-        import re
-        import socket
-
         lan_re = re.compile(r"^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)")
         if not lan_re.match(self._ws_url.split("//")[-1].split(":")[0]):
             return self._ws_url  # not a LAN IP — use as-is
@@ -148,15 +147,22 @@ class MusicAssistantClient:
         gateway = "172.30.32.1"
         candidate = f"ws://{gateway}:{port}/ws"
         try:
-            sock = socket.create_connection((gateway, port), timeout=2)
-            sock.close()
+            # Async reachability probe — never block the event loop.
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(gateway, port), timeout=2
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
             _LOGGER.info(
                 "Using internal Docker gateway %s (avoids hairpin NAT on %s)",
                 candidate,
                 self._ws_url,
             )
             return candidate
-        except OSError:
+        except (OSError, asyncio.TimeoutError):
             return self._ws_url
 
     async def connect(self) -> None:
@@ -325,8 +331,6 @@ class MusicAssistantClient:
             self._fail_pending(ConnectionError("websocket closed"))
 
     async def _handle_message(self, raw: str | bytes) -> None:
-        import json
-
         try:
             msg = json.loads(raw)
         except ValueError:
@@ -388,7 +392,6 @@ class MusicAssistantClient:
                 raise ConnectionError("Music Assistant not connected")
         if self._ws is None:
             raise ConnectionError("not connected to Music Assistant")
-        import json
 
         message_id = str(next(self._msg_ids))
         payload = {"command": command, "message_id": message_id}
@@ -976,8 +979,15 @@ class MusicAssistantClient:
                 qid = self._queue_id_of(q)
                 if qid:
                     return qid, str(q.get("state")).lower()
-        # 3) nothing active — return the selected queue and its (likely idle) state.
-        return selected, (_state_of(selected) if selected else None)
+        # 3) nothing active per the queue list. Determine the selected queue's
+        # state — but if the list was id-strings (MA 2.8.9) we couldn't read it
+        # from the dicts above, so fall back to the player-level state. Without
+        # this, an unknown state reads as idle and the toggle would `resume`
+        # (restart) a queue that is actually playing.
+        state = _state_of(selected) if selected else None
+        if selected and state is None:
+            state = await self.get_play_state()
+        return selected, state
 
     async def queue_pause(self, queue_id: str) -> bool:
         """Pause a specific queue via the queue controller."""

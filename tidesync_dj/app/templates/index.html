@@ -1143,11 +1143,18 @@
   });
 
   // ── Boot + polling ──
+  // Skip polling while the tab is hidden — no point hammering Music Assistant
+  // over the WebSocket when nobody's looking. Each tick is gated on visibility,
+  // and we do one immediate refresh when the tab is focused again.
+  const whenVisible = (fn) => () => { if (!document.hidden) fn(); };
   refreshStatus(); refreshLog(); refreshPlayers(); refreshQueue();
-  setInterval(refreshStatus, 5000);
-  setInterval(refreshQueue, 5000);
-  setInterval(refreshLog, 8000);
-  setInterval(refreshPlayers, 15000);
+  setInterval(whenVisible(refreshStatus), 5000);
+  setInterval(whenVisible(refreshQueue), 5000);
+  setInterval(whenVisible(refreshLog), 8000);
+  setInterval(whenVisible(refreshPlayers), 15000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { refreshStatus(); refreshQueue(); refreshLog(); refreshPlayers(); }
+  });
 </script>
 </body>
 </html>

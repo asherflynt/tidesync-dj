@@ -1,0 +1,5 @@
+# Test-only dependencies. NOT installed into the add-on image (the Dockerfile
+# installs requirements.txt only) — used locally and in CI.
+-r requirements.txt
+pytest==8.3.4
+pytest-asyncio==0.25.2

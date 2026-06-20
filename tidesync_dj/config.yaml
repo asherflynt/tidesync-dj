@@ -1,5 +1,5 @@
 name: TideSync DJ
-version: "1.2.0"
+version: "1.2.1"
 slug: tidesync_dj
 description: AI-powered DJ for any Music Assistant source, powered by Claude
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj
@@ -20,7 +20,6 @@ options:
   ma_host: "homeassistant.local"
   ma_port: 8095
   dj_tick_interval: 30
-  skip_penalty_seconds: 60
   ma_username: ""
   ma_password: ""
   ma_token: ""
@@ -38,7 +37,6 @@ schema:
   ma_password: password?
   ma_token: password?
   dj_tick_interval: int
-  skip_penalty_seconds: int
   vibe_input_text_entity: str?
   playlist_provider: str?
   weather_entity: str?

@@ -22,7 +22,6 @@ class Config:
     ma_host: str
     ma_port: int
     dj_tick_interval: int
-    skip_penalty_seconds: int
     vibe_input_text_entity: str | None
     ma_username: str
     ma_password: str
@@ -84,7 +83,6 @@ def load_config() -> Config:
         ma_host=_clean_host(str(_get("ma_host", "homeassistant.local"))),
         ma_port=int(_get("ma_port", 8095)),
         dj_tick_interval=int(_get("dj_tick_interval", 30)),
-        skip_penalty_seconds=int(_get("skip_penalty_seconds", 30)),
         vibe_input_text_entity=vibe_entity or None,
         ma_username=str(_get("ma_username", "")),
         ma_password=str(_get("ma_password", "")),

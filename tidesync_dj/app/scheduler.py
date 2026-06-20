@@ -946,7 +946,7 @@ class DJEngine:
         """Read-only view of each person's LEARNED taste (for the hidden viewer)."""
         out: list[dict[str, Any]] = []
         for p in self._users.people():
-            person = self._users._people.get(p["slug"])  # noqa: SLF001
+            person = self._users.get(p["slug"])
             out.append({
                 "slug": p["slug"],
                 "name": p["name"],

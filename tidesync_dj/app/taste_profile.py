@@ -28,8 +28,6 @@ class TasteProfile:
         return {
             "summary": "",
             "favorite_artists": [],
-            "avoid_artists": [],
-            "skip_patterns": [],
             "session_count": 0,
             "decision_count": 0,
             "last_updated": None,
@@ -58,10 +56,6 @@ class TasteProfile:
     def is_bootstrapped(self) -> bool:
         return bool(self._data.get("summary"))
 
-    @property
-    def avoid_artists(self) -> list[str]:
-        return self._data.get("avoid_artists", [])
-
     def as_dict(self) -> dict[str, Any]:
         return dict(self._data)
 
@@ -74,14 +68,6 @@ class TasteProfile:
         self._data["decision_count"] = self._data.get("decision_count", 0) + 1
         self._save()
         return self._data["decision_count"] % UPDATE_EVERY_N_DECISIONS == 0
-
-    def note_skip(self, artist: str | None) -> None:
-        if not artist:
-            return
-        avoid = self._data.setdefault("avoid_artists", [])
-        if artist not in avoid:
-            avoid.append(artist)
-            self._save()
 
     def set_summary(self, summary: str) -> None:
         if summary:

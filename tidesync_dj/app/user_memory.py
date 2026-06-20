@@ -476,6 +476,10 @@ class UserStore:
     def active_slug(self) -> str:
         return self._active_slug  # type: ignore[return-value]
 
+    def get(self, slug: str) -> Person | None:
+        """Look up a person by slug (read-only; None if unknown)."""
+        return self._people.get(slug)
+
     def people(self) -> list[dict[str, str | bool]]:
         return [
             {"slug": p.slug, "name": p.name, "active": p.slug == self._active_slug}

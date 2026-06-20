@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.2.1
+
+Internal hardening and cleanup (no change to how you use the add-on):
+
+- **Play/pause** is now correct even on Music Assistant builds whose
+  `player_queues/all` returns plain queue ids instead of full objects — it
+  reads the player's state as a fallback so a press never restarts a playing
+  track.
+- Removed the unused `skip_penalty_seconds` option and other dead skip-penalty
+  code left over from an earlier design.
+- The connection's internal "is the Docker gateway reachable?" probe no longer
+  briefly blocks the event loop on (re)connect.
+- The dashboard pauses its background polling while its browser tab is hidden,
+  and refreshes immediately when you return to it.
+- Added an automated test suite and CI so regressions in transport, stats,
+  resolution, and per-person memory get caught before release.
+
 ## 1.2.0
 
 ### Seamless speaker switching

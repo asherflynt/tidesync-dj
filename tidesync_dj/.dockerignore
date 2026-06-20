@@ -1,0 +1,8 @@
+# Keep test-only and dev files out of the add-on image (runtime installs
+# requirements.txt only). The build context is this add-on directory.
+app/tests/
+app/conftest.py
+app/pytest.ini
+app/requirements-dev.txt
+**/__pycache__/
+**/*.pyc
