@@ -13,15 +13,26 @@ the decision brain.
 
 ## Installation
 
-1. In Home Assistant, go to **Settings → Add-ons → Add-on Store**.
+1. In Home Assistant, go to **Settings → Apps** and click **Install app**
+   (bottom-right) to open the App store.
 2. Click the **⋮** menu (top-right) → **Repositories**.
-3. Add this repository URL:
+3. Add this repository URL, then close the dialog:
    ```
    https://github.com/asherflynt/tidesync-dj
    ```
-4. The **TideSync DJ** add-on now appears in the store — install it, configure
-   it (Anthropic API key, Music Assistant host/port), and start it.
+4. Back in the App store, find the **TideSync DJ** app, open it, and click
+   **Install**. Then configure it (Anthropic API key, Music Assistant
+   host/port) and start it.
 5. Open the **TideSync DJ** panel from the HA sidebar.
 
 See the [add-on README](./tidesync_dj/README.md) for full configuration and API
 details.
+
+## Credits
+
+TideSync grounds its track sequencing in tempo/key data from free, openly
+licensed sources, looked up by ISRC (no audio is ever downloaded or analysed):
+
+- BPM and key data provided by [GetSongBPM](https://getsongbpm.com).
+- Acoustic features from [AcousticBrainz](https://acousticbrainz.org), with
+  recordings resolved via [MusicBrainz](https://musicbrainz.org).
