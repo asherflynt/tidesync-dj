@@ -463,6 +463,33 @@ class MusicAssistantClient:
             "item_id": item.get("queue_item_id"),
         }
 
+    @staticmethod
+    def external_ids(item: dict[str, Any] | None) -> dict[str, str | None]:
+        """Pull ISRC + MusicBrainz id from a queue item / search result.
+
+        MA carries these on the media item as `external_ids` (a list of
+        [type, value] pairs or {type, value} dicts) and sometimes `mbid`. They
+        drive the sonic-feature lookup; both are optional and may be missing.
+        """
+        if not item:
+            return {"isrc": None, "mbid": None}
+        media = item.get("media_item") or item
+        isrc: str | None = None
+        mbid: str | None = media.get("mbid") or None
+        for ext in media.get("external_ids") or []:
+            if isinstance(ext, (list, tuple)) and len(ext) == 2:
+                etype, value = ext
+            elif isinstance(ext, dict):
+                etype, value = ext.get("type"), ext.get("value")
+            else:
+                continue
+            etype = str(etype or "").lower()
+            if etype == "isrc" and not isrc:
+                isrc = value
+            elif etype in ("musicbrainz", "musicbrainz_recordingid", "mbid") and not mbid:
+                mbid = value
+        return {"isrc": isrc, "mbid": mbid}
+
     async def get_players(self) -> list[dict[str, Any]]:
         """List players known to Music Assistant (AirPlay zones, etc.)."""
         try:
@@ -716,6 +743,7 @@ class MusicAssistantClient:
         queries: list[str],
         option: str = "add",
         blocked_uris: set[str] | None = None,
+        reorder: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
     ) -> list[dict[str, Any]]:
         """Resolve queries to tracks and queue them on the active queue.
 
@@ -727,6 +755,11 @@ class MusicAssistantClient:
         `blocked_uris` are dropped after resolution so a temporarily-blocked
         track can never make it back into the queue.
 
+        `reorder`, if given, receives the resolved tracks and returns them in a
+        new order (e.g. Camelot/tempo harmonic sort). It forces a resolve-all
+        pass before any track is queued; without it we keep the snappy streaming
+        path that starts a "play" batch the moment its first track resolves.
+
         Returns the list of tracks that were successfully queued.
         """
         queue_id = self.active_queue_id or await self.refresh_active_queue()
@@ -737,31 +770,58 @@ class MusicAssistantClient:
         blocked_uris = blocked_uris or set()
         enqueued: list[dict[str, Any]] = []
         seen: set[str] = set()  # dedupe within this batch (two queries → same track)
-        first = True
-        for query in queries:
-            track = await self.search_track(query)
-            if not track:
-                continue
+
+        async def _push(track: dict[str, Any], first: bool) -> bool:
             uri = track.get("uri")
-            if not uri:
-                continue
-            if uri in blocked_uris or uri in seen:
-                _LOGGER.debug("Skipping blocked/duplicate track %s", uri)
-                continue
             # Only the first track of a "play" batch interrupts; the rest append.
             this_option = option if (first and option == "play") else "add"
             try:
                 await self._command(
-                    CMD_PLAY_MEDIA,
-                    queue_id=queue_id,
-                    media=uri,
-                    option=this_option,
+                    CMD_PLAY_MEDIA, queue_id=queue_id, media=uri, option=this_option
                 )
                 enqueued.append(track)
-                seen.add(uri)
-                first = False
+                return True
             except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Failed to queue %r: %s", query, err)
+                _LOGGER.warning("Failed to queue %r: %s", track.get("_source_query"), err)
+                return False
+
+        def _resolved(track: dict[str, Any] | None, query: str) -> dict[str, Any] | None:
+            if not track:
+                return None
+            uri = track.get("uri")
+            if not uri or uri in blocked_uris or uri in seen:
+                if uri:
+                    _LOGGER.debug("Skipping blocked/duplicate track %s", uri)
+                return None
+            seen.add(uri)  # reserve so duplicates within the batch are dropped
+            # Tag the resolving query so the caller can map a track back to the
+            # brain's pick (and its committed energy).
+            track["_source_query"] = query
+            return track
+
+        if reorder is not None:
+            # Resolve everything, reorder, then queue in the new order.
+            resolved: list[dict[str, Any]] = []
+            for query in queries:
+                track = _resolved(await self.search_track(query), query)
+                if track:
+                    resolved.append(track)
+            try:
+                resolved = reorder(list(resolved)) or resolved
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Harmonic reorder failed, keeping order: %s", err)
+            for i, track in enumerate(resolved):
+                await _push(track, first=(i == 0))
+            return enqueued
+
+        # Streaming path: resolve and queue each query in turn.
+        first = True
+        for query in queries:
+            track = _resolved(await self.search_track(query), query)
+            if not track:
+                continue
+            if await _push(track, first=first):
+                first = False
         return enqueued
 
     async def ensure_playing(self, player_id: str | None = None) -> bool:

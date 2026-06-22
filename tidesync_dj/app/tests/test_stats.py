@@ -18,6 +18,7 @@ def _engine():
     e.session_started = time.monotonic()
     e.stats = {"tracks_played": 0, "skips": 0, "added": 0, "new_artists": 0}
     e._session_uris = {}
+    e._track_energy = {}
     e._played_uris = {}
     e._played_artists = set()
     return e

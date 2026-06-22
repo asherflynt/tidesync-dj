@@ -68,6 +68,18 @@ the night) and "arc_position" says where you are (elapsed time, % through,
 current phase). Pick for the CURRENT phase and transition smoothly toward the
 next; don't restart the arc every block.
 
+CONTINUE THE ENERGY CURVE — "energy_arc" is the curve you have ACTUALLY built so
+far: each recently played/queued track with the energy you assigned it (1=calmest,
+10=peak) and, when known, its measured "bpm" and "camelot" key. This is ground
+truth, not a guess. Read where the last few tracks left the energy (and tempo/key)
+and make your first new pick flow from there — no jarring jump from where the
+music actually is. Then ride the curve toward the current set-plan phase. Set each
+track's "energy" (1-10) as its deliberate place on that arc; keep successive picks
+moving smoothly (small steps, occasional intentional peak/breather) rather than
+sawtoothing. Where "camelot"/"bpm" are present, prefer harmonically and tempo-
+compatible neighbours for the smoothest blends, but never sacrifice the driver or
+the arc just to match keys.
+
 READ THE SIGNALS:
 - "energy_bias" (negative = pull calmer, positive = push more energetic) shifts
   your target energy for this block.
@@ -87,8 +99,9 @@ CRAFT (programme like a $1M event DJ):
 - Avoid re-queuing tracks/artists prominent in "recent_history".
 - If the listener or vibe implies kids/family, keep it clean — no explicit tracks.
 - Each track query in "Artist - Track" form so it resolves in search.
-- Fill "vibe_reading" (your read of the driver), give a brief "dj_note" on the
-  arc and what drove your picks, and return exactly "tracks_to_add" tracks.
+- Fill "vibe_reading" (your read of the driver), set each track's "energy" (its
+  place on the arc), give a brief "dj_note" on the arc and what drove your picks,
+  and return exactly "tracks_to_add" tracks.
 """
 
 # JSON schema for structured outputs. Must satisfy the structured-output
@@ -114,8 +127,9 @@ DECISION_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "query": {"type": "string"},
                     "reason": {"type": "string"},
+                    "energy": {"type": "integer"},
                 },
-                "required": ["query", "reason"],
+                "required": ["query", "reason", "energy"],
                 "additionalProperties": False,
             },
         },
@@ -162,6 +176,9 @@ SET_PLAN_SCHEMA: dict[str, Any] = {
 class NextTrack(BaseModel):
     query: str
     reason: str
+    # The track's place on the energy arc (1 = calmest, 10 = peak). Persisted so
+    # the next cycle sees the curve it actually built (see "energy_arc").
+    energy: int = 5
 
 
 class VibeReading(BaseModel):
@@ -256,7 +273,10 @@ class ClaudeBrain:
                 max_tokens=4096,
                 system=self._system_blocks(taste_profile),
                 messages=[{"role": "user", "content": self._user_payload(context)}],
-                extra_body=self._extra_body(effort="medium", json_schema=DECISION_SCHEMA),
+                # Sequencing for energy/tempo/key flow is the hard reasoning here;
+                # "high" buys better transitions. The DJ ticks every 30s+, so the
+                # extra latency/cost is comfortably absorbed.
+                extra_body=self._extra_body(effort="high", json_schema=DECISION_SCHEMA),
             )
         except anthropic.APIError as err:
             _LOGGER.error("Claude decision call failed: %s", err)

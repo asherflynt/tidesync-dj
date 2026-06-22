@@ -35,6 +35,12 @@ class Config:
     # Optional HA input_text/input_select whose value drives an action (play,
     # stop, skip, nudge, energy up/down, "vibe: …", "player: …"). Blank = off.
     ha_action_entity: str
+    # Sonic enrichment: look up real BPM/key by ISRC to ground sequencing.
+    sonic_features: bool
+    # Optional GetSongBPM API key (extra free BPM/key source; blank = off).
+    getsongbpm_api_key: str
+    # Reorder each resolved block by Camelot/tempo adjacency before queueing.
+    harmonic_sort: bool
     data_dir: Path
 
     @property
@@ -75,6 +81,13 @@ def load_config() -> Config:
             return os.environ[env_key]
         return opts.get(key, default)
 
+    def _get_bool(key: str, default: bool) -> bool:
+        # options.json carries real bools; an env override arrives as a string.
+        val = _get(key, default)
+        if isinstance(val, str):
+            return val.strip().lower() in ("1", "true", "yes", "on")
+        return bool(val)
+
     vibe_entity = _get("vibe_input_text_entity", "") or ""
 
     return Config(
@@ -95,5 +108,8 @@ def load_config() -> Config:
         weather_entity=str(_get("weather_entity", "") or ""),
         temperature_entity=str(_get("temperature_entity", "") or ""),
         ha_action_entity=str(_get("ha_action_entity", "") or ""),
+        sonic_features=_get_bool("sonic_features", True),
+        getsongbpm_api_key=str(_get("getsongbpm_api_key", "") or ""),
+        harmonic_sort=_get_bool("harmonic_sort", False),
         data_dir=DATA_DIR,
     )

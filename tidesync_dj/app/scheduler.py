@@ -24,6 +24,7 @@ from claude_brain import ClaudeBrain, SetPlan
 from config import Config
 from ha_client import HAClient
 from ma_client import MusicAssistantClient, EVENT_QUEUE_UPDATED, EVENT_QUEUE_TIME_UPDATED
+from sonic_features import SonicFeatures, camelot_adjacent, tempo_close
 from taste_profile import TasteProfile
 from timectx import month_bucket, time_of_day_slot
 from user_memory import Person, UserStore
@@ -85,6 +86,14 @@ def _track_artist(item: dict[str, Any] | None) -> str | None:
     return media.get("artist")
 
 
+def _track_name(item: dict[str, Any] | None) -> str | None:
+    """Bare track title (no artist) from a queue item / media item."""
+    if not item:
+        return None
+    media = item.get("media_item") or item
+    return media.get("name") or item.get("name")
+
+
 def _provider_of(uri: str) -> str | None:
     """Provider id from an MA URI ("<provider>://<type>/<id>" -> "<provider>")."""
     if uri and "://" in uri:
@@ -120,6 +129,13 @@ class DJEngine:
         self._brain = brain
         self._taste = taste
         self._users = users
+        # Sonic-feature store: BPM/key looked up by ISRC and cached on disk, used
+        # to ground the energy arc. Disabled => every lookup is a cheap no-op.
+        self._sonic = SonicFeatures(
+            config.data_dir,
+            enabled=config.sonic_features,
+            getsongbpm_key=config.getsongbpm_api_key,
+        )
 
         self.vibe_prompt: str = ""
         # When the listener starts radio from a hand-picked song we keep that
@@ -145,6 +161,9 @@ class DJEngine:
         # Ordered, de-duplicated track URIs the DJ has QUEUED this session — used
         # to avoid re-queuing the same track. dict preserves order + dedupes.
         self._session_uris: dict[str, None] = {}
+        # Energy the brain committed to each queued track (uri -> 1..10). Fed back
+        # as "energy_arc" so the next cycle continues the curve it actually built.
+        self._track_energy: dict[str, int] = {}
         # Distinct URIs / artists that ACTUALLY started playing this session.
         # These back the "songs heard" and "artists" stats and the saved playlist.
         self._played_uris: dict[str, None] = {}
@@ -522,10 +541,115 @@ class DJEngine:
         self.session_started = time.monotonic()
         self._last_active = time.monotonic()
         self._session_uris.clear()
+        self._track_energy.clear()
         self._played_uris.clear()
         self._played_artists = set()
         self.stats = {"tracks_played": 0, "skips": 0, "added": 0, "new_artists": 0}
         _LOGGER.info("New listening session started")
+
+    # ------------------------------------------------------------------ #
+    # Sonic enrichment
+    # ------------------------------------------------------------------ #
+    def _features_for(self, item: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Cache-only sonic features for a track (BPM/key/camelot), or None."""
+        if not item or not self._sonic.enabled:
+            return None
+        ids = self._ma.external_ids(item)
+        return self._sonic.get(
+            isrc=ids.get("isrc"),
+            mbid=ids.get("mbid"),
+            artist=_track_artist(item) or "",
+            title=_track_name(item) or "",
+        )
+
+    def _arc_entry(self, item: dict[str, Any] | None) -> dict[str, Any] | None:
+        """One {track, energy?, bpm?, camelot?} point on the played energy curve."""
+        label = _track_label(item)
+        if not label:
+            return None
+        entry: dict[str, Any] = {"track": label}
+        uri = _track_uri(item)
+        energy = self._track_energy.get(uri) if uri else None
+        if energy is not None:
+            entry["energy"] = energy
+        feats = self._features_for(item)
+        if feats:
+            if feats.get("bpm"):
+                entry["bpm"] = feats["bpm"]
+            if feats.get("camelot"):
+                entry["camelot"] = feats["camelot"]
+        return entry
+
+    def _energy_arc(
+        self, history: list[dict[str, Any]], current: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
+        """The energy/tempo/key curve actually built so far (history + now playing)."""
+        arc: list[dict[str, Any]] = []
+        for item in history:
+            entry = self._arc_entry(item)
+            if entry:
+                arc.append(entry)
+        now = self._arc_entry(current)
+        if now:
+            now["now_playing"] = True
+            arc.append(now)
+        return arc
+
+    def _schedule_feature_warm(self, tracks: list[dict[str, Any]]) -> None:
+        """Background: warm the sonic cache for freshly enqueued tracks by ISRC."""
+        if not self._sonic.enabled or not tracks:
+            return
+
+        async def _warm() -> None:
+            for t in tracks:
+                ids = self._ma.external_ids(t)
+                try:
+                    await self._sonic.ensure(
+                        isrc=ids.get("isrc"),
+                        mbid=ids.get("mbid"),
+                        artist=_track_artist(t) or "",
+                        title=_track_name(t) or "",
+                    )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug("Feature warm failed: %s", err)
+
+        task = asyncio.create_task(_warm())
+        self._refine_tasks.add(task)
+        task.add_done_callback(self._refine_tasks.discard)
+
+    def _harmonic_reorder(
+        self, tracks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Greedily reorder a resolved block for the smoothest Camelot/tempo flow.
+
+        Cache-only and conservative: keeps the brain's opener, then at each step
+        prefers an unplayed track that's harmonically/tempo-compatible with the
+        last; falls back to the brain's original order when nothing matches or
+        features are missing. A no-op until the cache has warmed for the block.
+        """
+        feats = [self._features_for(t) for t in tracks]
+        if sum(1 for f in feats if f) < 2:
+            return tracks  # not enough data to improve on the brain's order
+        remaining = list(zip(tracks, feats))
+        ordered = [remaining.pop(0)]
+        while remaining:
+            _, last_f = ordered[-1]
+            last_cam = (last_f or {}).get("camelot")
+            last_bpm = (last_f or {}).get("bpm")
+            nxt = next(
+                (
+                    i
+                    for i, (_, f) in enumerate(remaining)
+                    if f
+                    and (
+                        camelot_adjacent(last_cam, f.get("camelot"))
+                        or tempo_close(last_bpm, f.get("bpm"))
+                    )
+                ),
+                0,  # fall back to the next track in the brain's order
+            )
+            ordered.append(remaining.pop(nxt))
+        return [t for t, _ in ordered]
 
     # ------------------------------------------------------------------ #
     # Decision cycle
@@ -565,6 +689,7 @@ class DJEngine:
             "energy_bias": self._energy_bias,
             "set_plan": self._set_plan_dict(),
             "arc_position": self._arc_position(),
+            "energy_arc": self._energy_arc(history, queue.get("current_item")),
             "tracks_to_add": QUEUE_TARGET,
         }
         # Optional ambient signals (skipped cleanly when unconfigured).
@@ -724,17 +849,31 @@ class DJEngine:
             # Never repeat a track already heard/queued this session: drop the
             # active person's blocks plus everything seen so far this session.
             blocked = self._users.active.blocked_uris() | set(self._session_uris)
+            reorder = (
+                self._harmonic_reorder
+                if (self._config.harmonic_sort and self._sonic.enabled)
+                else None
+            )
             self._enqueuing = True
             try:
                 enqueued = await self._ma.enqueue_queries(
-                    queries, option=play_option, blocked_uris=blocked
+                    queries, option=play_option, blocked_uris=blocked, reorder=reorder
                 )
             finally:
                 self._enqueuing = False
             if play_option == "play":
                 await self._ma.ensure_playing()
+            # Remember each track and the energy the brain committed to it (mapped
+            # back via the query that resolved it), then warm sonic features so the
+            # next cycle's "energy_arc" carries real BPM/key.
+            query_energy = {t.query: t.energy for t in decision.next_tracks}
             for track in enqueued:
-                self._remember_uri(track.get("uri"))
+                uri = track.get("uri")
+                self._remember_uri(uri)
+                energy = query_energy.get(track.get("_source_query"))
+                if uri and energy is not None:
+                    self._track_energy[uri] = energy
+            self._schedule_feature_warm(enqueued)
             # NOTE: the "added"/"artists" stats are NOT bumped here. They count
             # what actually PLAYS (see _note_track_change) so tracks that MA
             # accepts but then can't stream never inflate the numbers.
@@ -747,7 +886,7 @@ class DJEngine:
                 "mood_shift": decision.mood_shift,
                 "mood_shift_reason": decision.mood_shift_reason,
                 "tracks": [
-                    {"query": t.query, "reason": t.reason}
+                    {"query": t.query, "reason": t.reason, "energy": t.energy}
                     for t in decision.next_tracks
                 ],
                 "enqueued": len(enqueued),

@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.3.0
+
+### More cohesive, better-sequenced sets
+
+The DJ used to pick tracks purely from names and genres — it never saw the
+*shape* of what it had already played, so sets felt grouped by type rather than
+deliberately sequenced. This release grounds the sequencing:
+
+- **Energy-arc feedback.** Claude now commits a 1–10 energy to every track it
+  queues, and the next decision is shown the curve it actually built (recent
+  history + now playing). It continues that curve smoothly instead of re-guessing
+  from scratch each block. Sequencing also runs at higher reasoning effort.
+- **Real BPM & key (free, optional).** When a track carries an ISRC, TideSync
+  looks up its tempo and musical key (→ Camelot code) from free sources
+  (AcousticBrainz, with MusicBrainz resolving the id; an optional GetSongBPM key
+  adds a fallback) and caches them on disk so each track is fetched at most once.
+  These feed into the energy arc so transitions are tempo/key-aware. Coverage is
+  best on catalogue tracks and thinner on brand-new releases; missing data simply
+  falls back to Claude's judgement. Toggle with **`sonic_features`** (on by
+  default).
+- **Optional harmonic sort** (**`harmonic_sort`**, off by default): reorders each
+  resolved block by Camelot/tempo adjacency for the smoothest possible blends,
+  with Claude's order as the tiebreaker.
+
+No audio is ever downloaded or analysed — features come purely from metadata
+lookup by ISRC.
+
 ## 1.2.1
 
 Internal hardening and cleanup (no change to how you use the add-on):
