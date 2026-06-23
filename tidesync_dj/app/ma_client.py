@@ -824,6 +824,59 @@ class MusicAssistantClient:
                 first = False
         return enqueued
 
+    async def resolve_queries(
+        self, queries: list[str], blocked_uris: set[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Resolve free-text queries to real, de-duplicated tracks (no enqueue).
+
+        Drops misses, blocked URIs, and within-batch duplicates, and tags each
+        track with its `_source_query`. Used to build a catalogue-verified
+        candidate pool for grounded ordering.
+        """
+        blocked_uris = blocked_uris or set()
+        resolved: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for query in queries:
+            track = await self.search_track(query)
+            if not track:
+                continue
+            uri = track.get("uri")
+            if not uri or uri in blocked_uris or uri in seen:
+                continue
+            seen.add(uri)
+            track["_source_query"] = query
+            resolved.append(track)
+        return resolved
+
+    async def enqueue_tracks(
+        self, tracks: list[dict[str, Any]], option: str = "add"
+    ) -> list[dict[str, Any]]:
+        """Queue already-resolved tracks in order (skips the search step).
+
+        Same `option` semantics as `enqueue_queries`: for a "play" batch the
+        first track interrupts and the rest append.
+        """
+        queue_id = self.active_queue_id or await self.refresh_active_queue()
+        if not queue_id:
+            _LOGGER.warning("No active queue to enqueue into")
+            return []
+        enqueued: list[dict[str, Any]] = []
+        first = True
+        for track in tracks:
+            uri = track.get("uri")
+            if not uri:
+                continue
+            this_option = option if (first and option == "play") else "add"
+            try:
+                await self._command(
+                    CMD_PLAY_MEDIA, queue_id=queue_id, media=uri, option=this_option
+                )
+                enqueued.append(track)
+                first = False
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Failed to queue %r: %s", track.get("_source_query"), err)
+        return enqueued
+
     async def ensure_playing(self, player_id: str | None = None) -> bool:
         """Send a play command so the selected player actually starts."""
         player_id = player_id or self.active_queue_id or self.selected_player_id

@@ -29,6 +29,10 @@ DEFAULT_PEOPLE = ["Mom", "Dad", "Kids"]
 MAX_LIKES = 200
 MAX_MOODS_PER_SLOT = 10
 MAX_BLOCK_HISTORY = 200
+# A vibe is a momentary request, not a durable taste. Recorded moods act only as
+# soft, short-lived hints: after this many days they stop surfacing, so a one-off
+# "put me to sleep" never becomes a standing preference.
+MOOD_TTL_DAYS = 10
 
 # Escalating block cooldowns: the more often a track is blocked, the longer it
 # rests before re-emerging. A single block is a short "I'm tired of this"; repeat
@@ -85,6 +89,14 @@ def _parse_dt(s: str) -> datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def _within_days(ts: str, days: int, now: datetime | None = None) -> bool:
+    """True if `ts` is at most `days` old (unparseable → treated as stale)."""
+    dt = _parse_dt(ts)
+    if dt is None:
+        return False
+    return (now or _now()) - dt <= timedelta(days=days)
 
 
 @dataclass
@@ -247,10 +259,17 @@ class Person:
         return [b.label for b in self.blocks if b.is_disliked]
 
     def moods_for(self, slot: str, n: int = 5) -> list[str]:
-        return [m.vibe for m in self.moods if m.slot == slot][-n:]
+        # Only recent moods surface — a stale one-off must not define a time of day.
+        return [
+            m.vibe for m in self.moods
+            if m.slot == slot and _within_days(m.ts, MOOD_TTL_DAYS)
+        ][-n:]
 
     def moods_for_month(self, month: int, n: int = 5) -> list[str]:
-        return [m.vibe for m in self.moods if month_of_iso(m.ts) == month][-n:]
+        return [
+            m.vibe for m in self.moods
+            if month_of_iso(m.ts) == month and _within_days(m.ts, MOOD_TTL_DAYS)
+        ][-n:]
 
     # ------------------------------------------------------------------ #
     # Learning signal bundle (fed to the per-person taste learner)
@@ -276,9 +295,12 @@ class Person:
             }
             for b in self.blocks
         ]
+        # Only recent moods feed the learner, so a one-off request can't get
+        # baked into the durable taste profile.
         moods = [
             {"vibe": m.vibe, "slot": m.slot, "month": month_of_iso(m.ts)}
             for m in self.moods
+            if _within_days(m.ts, MOOD_TTL_DAYS)
         ]
         return {"likes": likes, "blocks": blocks, "moods": moods}
 

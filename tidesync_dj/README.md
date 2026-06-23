@@ -26,17 +26,38 @@ length). Claude returns 2–3 next tracks with reasoning, an optional mood-shift
 flag, and a DJ note. The engine resolves those queries against Music Assistant
 and appends them to the active queue.
 
-## Installation (local add-on)
+## Installation (local app)
 
 1. Copy the `tidesync-dj/` folder into your Home Assistant `addons/` share
    (e.g. `/addons/tidesync-dj`).
-2. **Settings → Add-ons → Add-on Store → ⋮ → Repositories** isn't needed for a
-   local add-on — instead just **⋮ → Check for updates**, then find
-   *TideSync DJ* under *Local add-ons* and install.
-3. Open the add-on **Configuration** tab and set options (below).
-4. Start the add-on and open the **TideSync DJ** panel from the sidebar.
+2. Go to **Settings → Apps**, click **Install app** (bottom-right) to open the
+   App store. Adding a repository isn't needed for a local app — instead use
+   the **⋮** menu (top-right) → **Check for updates**, then find *TideSync DJ*
+   in the store and install it.
+3. Open the app **Configuration** tab and set options (below).
+4. Start the app and open the **TideSync DJ** panel from the sidebar.
+
+## Getting an Anthropic API key
+
+TideSync uses Claude as its decision brain, so you need an Anthropic API key:
+
+1. Go to the [Anthropic Console](https://console.anthropic.com) and sign in (or
+   create an account).
+2. Add a payment method under **Billing** and load a little credit — API usage
+   is pay-as-you-go and separate from a Claude.ai subscription.
+3. Open **API keys** → **Create Key**, name it (e.g. `tidesync-dj`), and copy
+   the key (it starts with `sk-ant-`). You can only see it once, so copy it now.
+4. Paste it into the `anthropic_api_key` option below.
+
+> A DJ session ticks frequently, so it does consume tokens over time. The
+> default model (`claude-sonnet-4-6`) is the best cost/quality balance; switch
+> to `claude-haiku-4-5` for the cheapest runs.
 
 ## Configuration
+
+On the app's **Configuration** tab, set the options below. At minimum you need
+`anthropic_api_key`, plus `ma_username`/`ma_password` if you're on Music
+Assistant 2.8+ (see the note under the table). Click **Save**, then **Start**.
 
 | Option | Description | Default |
 |--------|-------------|---------|

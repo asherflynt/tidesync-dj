@@ -20,7 +20,7 @@ from collections import deque
 from datetime import datetime
 from typing import Any
 
-from claude_brain import ClaudeBrain, SetPlan
+from claude_brain import ClaudeBrain, PoolOrder, SetPlan
 from config import Config
 from ha_client import HAClient
 from ma_client import MusicAssistantClient, EVENT_QUEUE_UPDATED, EVENT_QUEUE_TIME_UPDATED
@@ -33,6 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 
 ENQUEUE_THRESHOLD = 5   # tick when fewer than this many tracks remain
 QUEUE_TARGET = 30       # how many tracks to request from Claude per decision
+POOL_TARGET = 40        # candidates to generate when grounding (pool to pick from)
 SEED_PLAYLIST_SAMPLE = 15  # max playlist tracks woven into the opening seed queue
 PERSON_REFINE_EVERY = 20   # refine the active person's taste every N decisions
 ENERGY_BIAS_MAX = 3        # clamp for the energy up/down nudge
@@ -655,7 +656,10 @@ class DJEngine:
     # Decision cycle
     # ------------------------------------------------------------------ #
     async def build_context(
-        self, fresh_start: bool = False, seed_label: str | None = None
+        self,
+        fresh_start: bool = False,
+        seed_label: str | None = None,
+        count: int = QUEUE_TARGET,
     ) -> dict[str, Any]:
         queue = await self._ma.get_queue()
         history = await self._ma.get_history(n=20)
@@ -690,7 +694,7 @@ class DJEngine:
             "set_plan": self._set_plan_dict(),
             "arc_position": self._arc_position(),
             "energy_arc": self._energy_arc(history, queue.get("current_item")),
-            "tracks_to_add": QUEUE_TARGET,
+            "tracks_to_add": count,
         }
         # Optional ambient signals (skipped cleanly when unconfigured).
         ctx.update(await self._weather_context())
@@ -702,7 +706,7 @@ class DJEngine:
                 ctx["seed_track"] = seed_label
                 ctx["instruction"] = (
                     f"The listener hand-picked '{seed_label}' as a seed and it is now "
-                    f"playing. Build a radio station around it: pick exactly {QUEUE_TARGET} "
+                    f"playing. Build a radio station around it: pick exactly {count} "
                     "tracks that flow from this seed — matching its genre, energy and era. "
                     "The seed dominates; the taste profile is only a secondary tiebreaker. "
                     "Never queue anything in 'blocked_tracks'. Do NOT repeat the seed track."
@@ -712,7 +716,7 @@ class DJEngine:
                     f"The vibe '{self.vibe_prompt}' defines the genre and energy for "
                     f"{person.name} — match it even where it diverges from the taste "
                     "profile. Any songs or artists named in the vibe are must-plays: "
-                    f"include them somewhere in the {QUEUE_TARGET}-track set (not "
+                    f"include them somewhere in the {count}-track set (not "
                     "necessarily first) and build around them. Use taste only as a "
                     "secondary tiebreaker, and vary from 'recent_history' so repeat "
                     "sessions differ. Never queue anything in 'blocked_tracks'."
@@ -724,7 +728,7 @@ class DJEngine:
                     "'moods_this_time_of_day'/'moods_this_month' and "
                     "'likes_this_time_of_day'/'likes_this_month' — set the energy to suit "
                     f"'{tod}', and use the taste profile only as the backbone palette. "
-                    f"Select exactly {QUEUE_TARGET} tracks, varying from 'recent_history'. "
+                    f"Select exactly {count} tracks, varying from 'recent_history'. "
                     "Never queue anything in 'blocked_tracks'."
                 )
         elif seed_label:
@@ -734,7 +738,7 @@ class DJEngine:
             ctx["seed_track"] = seed_label
             ctx["instruction"] = (
                 f"This is an ongoing radio station seeded from '{seed_label}'. Keep it "
-                f"flowing: pick exactly {QUEUE_TARGET} tracks that stay on-theme with the "
+                f"flowing: pick exactly {count} tracks that stay on-theme with the "
                 f"seed and the tracks already played this session (see 'recent_history'), "
                 "evolving naturally rather than reverting to the broader taste profile. "
                 "The seed dominates; taste is secondary. Never queue anything in "
@@ -765,6 +769,66 @@ class DJEngine:
             else:
                 merged.append(secondary[si]); si += 1
         return merged
+
+    async def _resolve_and_order(
+        self,
+        context: dict[str, Any],
+        queries: list[str],
+        blocked: set[str],
+        play_option: str,
+        count: int,
+    ) -> tuple[list[dict[str, Any]], dict[str, int], str]:
+        """Candidate-grounding: resolve queries to a REAL pool, then let Claude
+        select + order `count` of them by id and enqueue in that order.
+
+        Returns (enqueued_tracks, energy_by_uri, dj_note). This eliminates
+        unresolvable picks (Claude only chooses tracks that actually exist) and
+        lets the ordering use measured BPM/key. Falls back to enqueuing the head
+        of the pool if ordering yields nothing usable.
+        """
+        pool_tracks = await self._ma.resolve_queries(queries, blocked_uris=blocked)
+        if not pool_tracks:
+            return [], {}, ""
+
+        pool: list[dict[str, Any]] = []
+        for i, t in enumerate(pool_tracks):
+            item: dict[str, Any] = {"id": i, "track": _track_label(t)}
+            feats = self._features_for(t)
+            if feats:
+                if feats.get("bpm"):
+                    item["bpm"] = feats["bpm"]
+                if feats.get("camelot"):
+                    item["camelot"] = feats["camelot"]
+            pool.append(item)
+
+        order_ctx = {**context, "tracks_to_add": count}
+        try:
+            order = await self._brain.order_pool(order_ctx, pool, count=count)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Pool ordering failed, falling back to pool head: %s", err)
+            order = PoolOrder()
+
+        energy_by_uri: dict[str, int] = {}
+        chosen: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for pick in order.selection:
+            if not (0 <= pick.id < len(pool_tracks)):
+                continue
+            track = pool_tracks[pick.id]
+            uri = track.get("uri")
+            if not uri or uri in seen:
+                continue
+            seen.add(uri)
+            chosen.append(track)
+            energy_by_uri[uri] = pick.energy
+            if len(chosen) >= count:
+                break
+
+        if not chosen:  # ordering produced nothing usable — keep music flowing
+            chosen = pool_tracks[:count]
+
+        enqueued = await self._ma.enqueue_tracks(chosen, option=play_option)
+        return enqueued, energy_by_uri, order.dj_note
 
     async def _run_decision(
         self,
@@ -828,7 +892,12 @@ class DJEngine:
                 except Exception:  # noqa: BLE001
                     pass  # if we can't check, proceed with the decision
 
-            context = await self.build_context(fresh_start=fresh_start, seed_label=seed_label)
+            # When grounding, generate a larger candidate pool to pick/order from.
+            grounding = self._config.candidate_grounding
+            gen_count = POOL_TARGET if grounding else QUEUE_TARGET
+            context = await self.build_context(
+                fresh_start=fresh_start, seed_label=seed_label, count=gen_count
+            )
             try:
                 decision = await self._brain.decide(context)
             except Exception as err:  # noqa: BLE001
@@ -856,39 +925,62 @@ class DJEngine:
             )
             self._enqueuing = True
             try:
-                enqueued = await self._ma.enqueue_queries(
-                    queries, option=play_option, blocked_uris=blocked, reorder=reorder
-                )
+                if grounding:
+                    # Resolve to a real pool, let Claude pick/order QUEUE_TARGET
+                    # by id, enqueue in that order. order_pool already sequences,
+                    # so the harmonic reorder is skipped here.
+                    enqueued, ground_energy, ground_note = await self._resolve_and_order(
+                        context, queries, blocked, play_option, QUEUE_TARGET
+                    )
+                else:
+                    enqueued = await self._ma.enqueue_queries(
+                        queries, option=play_option, blocked_uris=blocked, reorder=reorder
+                    )
+                    ground_energy, ground_note = {}, ""
             finally:
                 self._enqueuing = False
             if play_option == "play":
                 await self._ma.ensure_playing()
-            # Remember each track and the energy the brain committed to it (mapped
-            # back via the query that resolved it), then warm sonic features so the
-            # next cycle's "energy_arc" carries real BPM/key.
+            # Remember each track and the energy committed to it, then warm sonic
+            # features so the next cycle's "energy_arc" carries real BPM/key.
+            # Grounding maps energy by uri (from the pool order); the legacy path
+            # maps it back via the query that resolved each track.
             query_energy = {t.query: t.energy for t in decision.next_tracks}
             for track in enqueued:
                 uri = track.get("uri")
                 self._remember_uri(uri)
-                energy = query_energy.get(track.get("_source_query"))
-                if uri and energy is not None:
+                if not uri:
+                    continue
+                energy = ground_energy.get(uri) if grounding else query_energy.get(
+                    track.get("_source_query")
+                )
+                if energy is not None:
                     self._track_energy[uri] = energy
             self._schedule_feature_warm(enqueued)
+            dj_note = ground_note if (grounding and ground_note) else decision.dj_note
             # NOTE: the "added"/"artists" stats are NOT bumped here. They count
             # what actually PLAYS (see _note_track_change) so tracks that MA
             # accepts but then can't stream never inflate the numbers.
 
+            if grounding:
+                # Log the real tracks actually queued (with their committed energy).
+                tracks_log = [
+                    {"query": _track_label(t), "energy": self._track_energy.get(t.get("uri"), 5)}
+                    for t in enqueued
+                ]
+            else:
+                tracks_log = [
+                    {"query": t.query, "reason": t.reason, "energy": t.energy}
+                    for t in decision.next_tracks
+                ]
             entry = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "reason": reason,
-                "dj_note": decision.dj_note,
+                "dj_note": dj_note,
                 "vibe_reading": decision.vibe_reading.model_dump(),
                 "mood_shift": decision.mood_shift,
                 "mood_shift_reason": decision.mood_shift_reason,
-                "tracks": [
-                    {"query": t.query, "reason": t.reason, "energy": t.energy}
-                    for t in decision.next_tracks
-                ],
+                "tracks": tracks_log,
                 "enqueued": len(enqueued),
             }
             self.decision_log.appendleft(entry)
@@ -897,7 +989,7 @@ class DJEngine:
             await self._ha.fire_event(
                 "tidesync_dj_decision",
                 {
-                    "dj_note": decision.dj_note,
+                    "dj_note": dj_note,
                     "mood_shift": decision.mood_shift,
                     "enqueued": len(enqueued),
                     "vibe": self.vibe_prompt,
@@ -1098,12 +1190,11 @@ class DJEngine:
         if not self._users.select(slug):
             return {"ok": False, "error": f"Unknown person: {slug}"}
         _LOGGER.info("Switched active person to %s", slug)
-        # Don't carry the previous person's vibe over. Recall this person's most
-        # recent vibe for the current time of day; otherwise clear it so the new
-        # person starts from their own taste/moods.
-        person = self._users.active
-        recalled = person.moods_for(_time_of_day())
-        self.vibe_prompt = recalled[-1] if recalled else ""
+        # Start the new person from their own taste — never force a past vibe as
+        # the active driver. A one-off request ("put me to sleep") must not become
+        # a standing vibe on switch; recent moods still inform softly via context
+        # ("moods_this_time_of_day") without dominating the set.
+        self.vibe_prompt = ""
         # Rebuild immediately so playback reflects the new person's preferences.
         result = await self._rebuild("person_switch")
         result["active"] = self._users.active_slug

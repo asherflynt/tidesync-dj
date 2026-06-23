@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.4.0
+
+### Picks that always exist, ordered from real tracks
+
+- **Candidate grounding.** Instead of inventing "Artist – Track" names and hoping
+  they resolve, the DJ now generates a larger pool of candidates, resolves them
+  against the real catalogue first, then has Claude **select and order the final
+  set by id from tracks that actually exist** — with measured BPM/key in hand for
+  the sequencing. No more unplayable picks, and transitions are informed by real
+  tempo/key. Toggle with **`candidate_grounding`** (on by default). It adds a
+  second Claude call per refill; turn it off to halve per-decision cost.
+
+### A one-off "vibe" no longer haunts you
+
+- Setting a vibe (e.g. "chill, put me to sleep") was being stored as a
+  time-of-day *mood* with no expiry, so a single request kept colouring every
+  later session — and switching listeners re-applied it as the active vibe.
+  Now: moods **expire after 10 days**, switching listeners **never force-applies a
+  past vibe** (recent moods only inform softly via context), and the taste-profile
+  learner **won't bake a one-off request into your durable profile**. Nothing was
+  ever hard-coded — this was the mood-learning loop being too sticky.
+
+### Reliability
+
+- `decide()` output ceiling raised 4096 → 8192 tokens so a high-effort set of 30+
+  tracks can't truncate mid-list.
+
 ## 1.3.0
 
 ### More cohesive, better-sequenced sets

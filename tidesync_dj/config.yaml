@@ -1,5 +1,5 @@
 name: TideSync DJ
-version: "1.3.0"
+version: "1.4.0"
 slug: tidesync_dj
 description: AI-powered DJ for any Music Assistant source, powered by Claude
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj
@@ -31,6 +31,7 @@ options:
   sonic_features: true
   getsongbpm_api_key: ""
   harmonic_sort: false
+  candidate_grounding: true
 schema:
   anthropic_api_key: str
   claude_model: list(claude-sonnet-4-6|claude-opus-4-8|claude-haiku-4-5)
@@ -51,5 +52,7 @@ schema:
   getsongbpm_api_key: str?
   # Reorder each resolved block by Camelot/tempo adjacency before queueing.
   harmonic_sort: bool?
+  # Resolve a real candidate pool first, then let Claude pick/order from it.
+  candidate_grounding: bool?
   # Deprecated alias for playlist_provider; honoured if present on upgrade.
   tidal_provider: str?

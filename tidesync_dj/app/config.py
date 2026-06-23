@@ -41,6 +41,8 @@ class Config:
     getsongbpm_api_key: str
     # Reorder each resolved block by Camelot/tempo adjacency before queueing.
     harmonic_sort: bool
+    # Resolve a real candidate pool first, then let Claude pick/order from it.
+    candidate_grounding: bool
     data_dir: Path
 
     @property
@@ -111,5 +113,6 @@ def load_config() -> Config:
         sonic_features=_get_bool("sonic_features", True),
         getsongbpm_api_key=str(_get("getsongbpm_api_key", "") or ""),
         harmonic_sort=_get_bool("harmonic_sort", False),
+        candidate_grounding=_get_bool("candidate_grounding", True),
         data_dir=DATA_DIR,
     )

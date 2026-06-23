@@ -173,6 +173,30 @@ SET_PLAN_SCHEMA: dict[str, Any] = {
 }
 
 
+# Schema for the candidate-ordering pass: select + order REAL tracks by id.
+ORDER_POOL_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "selection": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "energy": {"type": "integer"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["id", "energy", "reason"],
+                "additionalProperties": False,
+            },
+        },
+        "dj_note": {"type": "string"},
+    },
+    "required": ["selection", "dj_note"],
+    "additionalProperties": False,
+}
+
+
 class NextTrack(BaseModel):
     query: str
     reason: str
@@ -192,6 +216,17 @@ class DJDecision(BaseModel):
     next_tracks: list[NextTrack] = Field(default_factory=list)
     mood_shift: bool = False
     mood_shift_reason: str | None = None
+    dj_note: str = ""
+
+
+class PoolPick(BaseModel):
+    id: int
+    energy: int = 5
+    reason: str = ""
+
+
+class PoolOrder(BaseModel):
+    selection: list[PoolPick] = Field(default_factory=list)
     dj_note: str = ""
 
 
@@ -270,7 +305,9 @@ class ClaudeBrain:
         try:
             response = await self._client.messages.create(
                 model=self._model,
-                max_tokens=4096,
+                # Headroom for high-effort thinking + a 30+ track JSON body so the
+                # response never truncates mid-set (streaming isn't needed < ~16k).
+                max_tokens=8192,
                 system=self._system_blocks(taste_profile),
                 messages=[{"role": "user", "content": self._user_payload(context)}],
                 # Sequencing for energy/tempo/key flow is the hard reasoning here;
@@ -300,6 +337,51 @@ class ClaudeBrain:
         except ValidationError as err:
             _LOGGER.error("Could not validate DJ decision: %s\nraw=%s", err, text)
             return DJDecision(dj_note="(failed to parse Claude response)")
+
+    async def order_pool(
+        self, context: dict[str, Any], pool: list[dict[str, Any]], count: int
+    ) -> PoolOrder:
+        """Select + order the final set from a pool of REAL, resolved tracks.
+
+        `pool` items are `{id, track, bpm?, camelot?}` — every entry is verified
+        to exist in the catalog (already resolved), with measured tempo/key where
+        known. Claude picks exactly `count` by id and orders them for the best
+        energy arc and harmonic flow, honoring the same driver/vibe/seed/arc
+        signals as `decide()`. Grounding the choice in real tracks means no
+        unresolvable picks and ordering informed by actual BPM/key.
+        """
+        taste_profile = context.get("taste_profile", "")
+        ctx = {k: v for k, v in context.items() if k != "taste_profile"}
+        prompt = (
+            f"Below is a POOL of real, catalogue-verified candidate tracks (each "
+            f"with an id and, where known, measured bpm and camelot key). Using the "
+            f"driver/vibe/seed/energy_arc/set_plan context, SELECT exactly {count} "
+            f"of them and ORDER them into the best set: smooth energy arc that fits "
+            f"the current phase, harmonically/tempo-compatible transitions where the "
+            f"data allows, varied artists (no back-to-back), and nothing in "
+            f"'blocked_tracks'. Return each chosen track's id in play order with the "
+            f"energy (1-10) you assign it on the arc. Prefer pool tracks; only the "
+            f"ids listed are available.\n\n"
+            f"Context:\n{json.dumps(ctx, default=str)}\n\n"
+            f"Candidate pool:\n{json.dumps(pool, default=str)}"
+        )
+        try:
+            response = await self._client.messages.create(
+                model=self._model,
+                max_tokens=8192,
+                system=self._system_blocks(taste_profile),
+                messages=[{"role": "user", "content": prompt}],
+                extra_body=self._extra_body(effort="high", json_schema=ORDER_POOL_SCHEMA),
+            )
+        except anthropic.APIError as err:
+            _LOGGER.error("Pool ordering call failed: %s", err)
+            raise
+        text = next((b.text for b in response.content if b.type == "text"), "")
+        try:
+            return PoolOrder.model_validate_json(text)
+        except ValidationError as err:
+            _LOGGER.error("Could not validate pool order: %s\nraw=%s", err, text)
+            return PoolOrder(dj_note="(failed to parse pool order)")
 
     async def plan_set(self, context: dict[str, Any]) -> SetPlan:
         """Plan the long-form arc of a session BEFORE picking tracks.
@@ -389,11 +471,18 @@ class ClaudeBrain:
             "tired of that track for a while, NOT that they dislike the artist or "
             "genre — do not mark it as avoid.\n"
             "- Likes are positive but weaker signals.\n"
-            "- Note time-of-day and monthly/seasonal patterns (each signal has a "
-            '"slot" and "month"), e.g. upbeat summer mornings, mellow December '
-            "evenings.\n"
-            "- Preserve and refine the existing profile; don't discard prior "
-            "knowledge. Keep it under ~250 words of plain prose.\n\n"
+            "- MOODS are momentary, in-the-moment requests, NOT durable taste. "
+            "Only treat a mood as a pattern when the SAME kind of request recurs "
+            "many times in the same slot. NEVER quote a mood verbatim or record a "
+            "single request (e.g. 'put me to sleep tonight') as a standing "
+            "preference — generalise at most to a soft tendency, or ignore it.\n"
+            "- Note genuine time-of-day and monthly/seasonal patterns (each signal "
+            'has a "slot" and "month"), e.g. upbeat summer mornings, mellow '
+            "December evenings — only when supported by repeated signals.\n"
+            "- Preserve and refine the existing profile, but DROP anything that "
+            "reads as a one-off request quoted as a standing preference (e.g. a "
+            "specific verbatim vibe phrase). Keep durable taste; shed momentary "
+            "asks. Keep it under ~250 words of plain prose.\n\n"
         )
         if previous:
             prompt += f"Existing profile to refine:\n{previous}\n\n"
