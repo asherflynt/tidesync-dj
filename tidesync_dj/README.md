@@ -21,10 +21,13 @@ time of day.
 ```
 
 Each decision cycle hands Claude a structured context payload (taste profile,
-recent history, current track, queue, recent skips, vibe, time of day, session
-length). Claude returns 2–3 next tracks with reasoning, an optional mood-shift
-flag, and a DJ note. The engine resolves those queries against Music Assistant
-and appends them to the active queue.
+recent history, current track, queue, recent skips, vibe, the session's set
+plan, the energy/tempo of what has played, time of day, session length). Claude
+returns a sequenced block of next tracks — each with reasoning and a deliberate
+energy level — plus an optional mood-shift flag and a DJ note. The engine
+resolves those queries against Music Assistant and keeps the active queue topped
+up as it runs low. See **Security & privacy** below for exactly what is (and
+isn't) sent to Claude.
 
 ## Installation (local app)
 
@@ -84,12 +87,57 @@ Secrets are managed by Home Assistant — no `.env` file. Options are read from
 
 ## Security & privacy
 
-- Your **Anthropic API key** (and Music Assistant credentials) are stored only
-  in Home Assistant's add-on options (`/data/options.json`, password-masked in
-  the UI). They are **never** logged, returned by any API endpoint, shown in the
-  dashboard, or committed to this repository. Third-party HTTP/SDK loggers
-  (`anthropic`, `httpx`, `httpcore`) are pinned to `WARNING` so their DEBUG
-  request dumps can't leak payloads or headers into the add-on log.
+TideSync is built so that **secrets never leave the box and only music data is
+shared with Claude**. The detail:
+
+### Secrets
+
+- Your **Anthropic API key**, **Music Assistant credentials**, and the optional
+  **GetSongBPM key** are stored only in Home Assistant's add-on options
+  (`/data/options.json`, password-masked in the UI). They are **never** logged,
+  returned by any API endpoint, shown in the dashboard, sent to Claude, written
+  to a data file, or committed to this repository.
+- Third-party HTTP/SDK loggers (`anthropic`, `httpx`, `httpcore`, `urllib3`) are
+  pinned to `WARNING` so their DEBUG request dumps can't leak payloads or
+  headers (the API key) into the add-on log.
+- The Home Assistant Supervisor token comes from the injected `SUPERVISOR_TOKEN`
+  env var and is used only in the `Authorization` header to the **local**
+  Supervisor — never logged or forwarded anywhere.
+
+### What is sent to Claude (and what isn't)
+
+Each decision hands Claude a structured **music** context — nothing more:
+
+- **Sent:** the taste-profile summary, track labels (`Artist - Track`) for recent
+  history / queue / likes / blocks, the vibe text, the set plan and energy/tempo
+  (BPM/key) data, time of day and month, the listener **label** (see below), and
+  — only if you configure the optional HA weather/temperature entities — their
+  current **state value** (e.g. `rainy`, `72`).
+- **Never sent:** any API key or credential, the HA token, your IP address,
+  device or player IDs, file paths, or GPS/coordinates (only the configured
+  entity's state string is read, never its attributes).
+
+### Listener names
+
+Each listener is just a **label you choose**. It is recorded in plain text under
+`/data` and included in the music context sent to Claude, so **it does not have
+to be a real name** — a nickname, an initial, or a room works just as well
+(e.g. `kitchen`, `J`, `mom`). The DJ behaves identically either way.
+
+### Other external services
+
+TideSync looks up free, openly-licensed tempo/key data by track identifier — no
+audio is downloaded or analysed, and no personal data is sent:
+
+- **GetSongBPM** — receives the artist/title being looked up plus the app's own
+  GetSongBPM key (over HTTPS).
+- **AcousticBrainz / MusicBrainz** — receive only track identifiers (ISRC/MBID).
+- **YouTube Music** (taste seeding) — an **unauthenticated** read of a **public**
+  playlist id; no cookies or credentials are sent, and private playlists aren't
+  supported.
+
+### Surface & hardening
+
 - The web UI is served **only through authenticated Home Assistant ingress** —
   there is no `ports:` mapping, so the service is not exposed on the host network.
 - The add-on requests **least privilege**: only `homeassistant_api` (Core REST
@@ -135,6 +183,7 @@ UI (except to build your own playlists).
 |--------|------|---------|
 | `GET`  | `/` | Ingress dashboard |
 | `GET`  | `/status` | DJ state, now playing, active vibe, stats |
+| `GET`  | `/dj/status` | Live "what the DJ is doing": start-up progress, set-plan arc, energy curve, and the latest decision's reasoning (drives the status popup) |
 | `POST` | `/vibe` | Set vibe: `{"prompt": "late night focus"}` |
 | `GET`  | `/queue` | Upcoming queue items (name, artist, art, `item_id`) |
 | `GET`  | `/search?q=` | Search Music Assistant for tracks to add |

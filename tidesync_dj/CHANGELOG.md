@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.1
+
+### Docs
+
+- Expanded **Security & privacy** in the README to spell out exactly what is (and
+  isn't) sent to Claude, that secrets never leave the add-on, and what the other
+  lookup services (GetSongBPM, AcousticBrainz/MusicBrainz, YouTube Music)
+  receive. Added a note that **listener names are just labels and need not be
+  real names**, and documented the new `/dj/status` endpoint.
+
 ## 1.5.0
 
 ### See what the DJ is doing — and no more skipping from a double Start Radio
