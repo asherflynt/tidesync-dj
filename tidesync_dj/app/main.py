@@ -151,6 +151,11 @@ async def status(request: Request):
     return await _engine(request).status()
 
 
+@app.get("/dj/status")
+async def dj_status(request: Request):
+    return await _engine(request).dj_status()
+
+
 @app.post("/vibe")
 async def set_vibe(request: Request, body: VibeBody):
     result = await _engine(request).set_vibe(body.prompt)

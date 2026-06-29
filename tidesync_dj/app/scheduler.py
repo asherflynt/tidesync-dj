@@ -190,6 +190,17 @@ class DJEngine:
         self._tick_lock = asyncio.Lock()
         self._pending_tick: asyncio.Task | None = None  # debounce queue_updated flood
         self._enqueuing = False  # True while _run_decision is adding tracks to MA
+        # Serializes user-initiated rebuilds (Start Radio / Set Vibe / Nudge /
+        # person switch / seed). A second rebuild that lands while one is still
+        # clearing+enqueueing used to overlap it, leaving two fill loops thrashing
+        # the queue and skipping the current track — this lock makes them mutually
+        # exclusive and lets a re-entrant call bail early as "busy".
+        self._rebuild_lock = asyncio.Lock()
+        # What the DJ is doing right now, surfaced to the UI (dj_status). Phases:
+        # "idle" | "planning" (Claude arc) | "picking" (Claude track decision) |
+        # "enqueuing" (adding tracks to MA). `target` is set during enqueuing so
+        # the UI can render a real progress bar against the queue depth.
+        self._dj_activity: dict[str, Any] = {"phase": "idle"}
         # User pressed Stop: playback halted, queue cleared, and the auto-DJ is
         # parked until the user explicitly restarts it (Start Radio / Set Vibe /
         # Nudge / person switch / seed all clear this). Distinct from _stopping,
@@ -523,12 +534,14 @@ class DJEngine:
             "reason": reason,
         }
         plan_ctx.update(await self._weather_context())
+        self._dj_activity = {"phase": "planning", "detail": "Planning the set"}
         try:
             plan = await self._brain.plan_set(plan_ctx)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Set plan generation failed: %s", err)
             self._set_plan = None
             self._set_plan_started = None
+            self._dj_activity = {"phase": "idle"}
             return
         self._set_plan = plan
         self._set_plan_started = time.monotonic()
@@ -898,16 +911,19 @@ class DJEngine:
             context = await self.build_context(
                 fresh_start=fresh_start, seed_label=seed_label, count=gen_count
             )
+            self._dj_activity = {"phase": "picking", "detail": "Choosing tracks"}
             try:
                 decision = await self._brain.decide(context)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("DJ decision failed: %s", err)
+                self._dj_activity = {"phase": "idle"}
                 return {"ok": False, "error": str(err)}
 
             # Stop can also land *during* the (slow) Claude call above. Bail
             # before we enqueue so a parked DJ never resurrects the queue.
             if self._dj_stopped:
                 _LOGGER.debug("_run_decision(%s) aborted after decide — DJ stopped by user", reason)
+                self._dj_activity = {"phase": "idle"}
                 return {"ok": True, "skipped": True, "reason": "dj_stopped"}
 
             queries = [t.query for t in decision.next_tracks]
@@ -924,6 +940,9 @@ class DJEngine:
                 else None
             )
             self._enqueuing = True
+            self._dj_activity = {
+                "phase": "enqueuing", "detail": "Queueing tracks", "target": QUEUE_TARGET,
+            }
             try:
                 if grounding:
                     # Resolve to a real pool, let Claude pick/order QUEUE_TARGET
@@ -939,6 +958,7 @@ class DJEngine:
                     ground_energy, ground_note = {}, ""
             finally:
                 self._enqueuing = False
+                self._dj_activity = {"phase": "idle"}
             if play_option == "play":
                 await self._ma.ensure_playing()
             # Remember each track and the energy committed to it, then warm sonic
@@ -1072,9 +1092,37 @@ class DJEngine:
         Claude choosing the opener itself. `seed_queries` (e.g. a seeded
         playlist) are instead woven among Claude's picks in the opening set.
         """
+        # A rebuild already in flight: don't clear/enqueue on top of it. Two
+        # overlapping rebuilds (e.g. an impatient double Start Radio, or a second
+        # browser tab) are exactly what makes the current track skip — bail early
+        # and let the first one finish.
+        if self._rebuild_lock.locked():
+            _LOGGER.info("Rebuild (%s) ignored — a session is already starting", reason)
+            return {
+                "ok": False,
+                "busy": True,
+                "error": "A radio session is already starting — hang tight.",
+            }
+        async with self._rebuild_lock:
+            return await self._rebuild_locked(
+                reason, seed_uri=seed_uri, seed_label=seed_label, seed_queries=seed_queries
+            )
+
+    async def _rebuild_locked(
+        self,
+        reason: str,
+        seed_uri: str | None = None,
+        seed_label: str | None = None,
+        seed_queries: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """The guts of a rebuild, run while holding `_rebuild_lock`."""
         # Any rebuild is a user-initiated restart — lift a prior Stop so the
         # auto-DJ resumes topping up the queue.
         self._dj_stopped = False
+        # Cancel any debounced auto-fill so a queue_low tick can't fire mid-rebuild
+        # and enqueue against the queue we're about to clear and refill.
+        if self._pending_tick and not self._pending_tick.done():
+            self._pending_tick.cancel()
         # If MA just dropped and is reconnecting, wait up to 15s rather than
         # immediately failing with a misleading "tracks not found" error.
         if not self._ma.is_connected:
@@ -1623,4 +1671,56 @@ class DJEngine:
             "session_minutes": round((time.monotonic() - self.session_started) / 60),
             "stats": self.stats,
             "model": self._config.claude_model,
+        }
+
+    async def dj_status(self) -> dict[str, Any]:
+        """Rich view of what the DJ is doing now — for the UI status modal.
+
+        Surfaces the live activity phase (planning/picking/enqueuing) for the
+        start-up loading bar, the long-form set plan + where we are in it, the
+        energy/tempo curve built so far, and the latest decision's reasoning.
+        """
+        try:
+            queue = await self._ma.get_queue()
+        except Exception:  # noqa: BLE001
+            queue = {}
+        current_item = queue.get("current_item")
+        items_remaining = queue.get("items_remaining", 0)
+
+        # Live progress for the loading bar: while enqueuing, the queue fills up
+        # toward `target`, so report the live depth as the numerator.
+        activity = dict(self._dj_activity)
+        if activity.get("phase") == "enqueuing":
+            activity["enqueued"] = items_remaining
+
+        try:
+            history = await self._ma.get_history(n=20)
+        except Exception:  # noqa: BLE001
+            history = []
+
+        latest_decision = None
+        if self.decision_log:
+            d = self.decision_log[0]
+            latest_decision = {
+                "timestamp": d.get("timestamp"),
+                "reason": d.get("reason"),
+                "dj_note": d.get("dj_note"),
+                "vibe_reading": d.get("vibe_reading"),
+                "mood_shift": d.get("mood_shift"),
+                "mood_shift_reason": d.get("mood_shift_reason"),
+                "tracks": d.get("tracks", []),
+                "enqueued": d.get("enqueued"),
+            }
+
+        return {
+            "activity": activity,  # {"phase", "detail"?, "target"?, "enqueued"?}
+            "set_plan": self._set_plan_dict(),  # {"arc_note", "phases":[...]} or None
+            "arc_position": self._arc_position(),  # {"elapsed_minutes","pct_through","current_phase"} or None
+            "energy_arc": self._energy_arc(history, current_item),  # [{track,energy?,bpm?,camelot?,now_playing?}]
+            "latest_decision": latest_decision,
+            "now_playing": _track_label(current_item),
+            "items_remaining": items_remaining,
+            "dj_stopped": self._dj_stopped,
+            "vibe": self.vibe_prompt or None,
+            "energy_bias": self._energy_bias,
         }

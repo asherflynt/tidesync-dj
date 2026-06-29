@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.5.0
+
+### See what the DJ is doing — and no more skipping from a double Start Radio
+
+- **"What the DJ is doing" popup.** A status modal over the main screen shows a
+  live **start-up loading bar** (Planning the set → Choosing tracks → Queueing
+  N/30), the session's **energy arc** (the planned phases with the current one
+  highlighted, plus the energy/tempo curve built so far), and the **DJ's read**
+  (its note, vibe interpretation, and why each recent track was picked). It
+  auto-opens when a session starts and is reopenable any time via the new
+  *"What's the DJ doing?"* button. Backed by a new `GET /dj/status` endpoint.
+- **Fixed tracks skipping after a double Start Radio.** Clicking Start Radio again
+  while the first set was still building used to clear and refill the queue on top
+  of the in-flight enqueue — two fill loops thrashing the queue, yanking the
+  current track after ~⅓ of a song. Rebuilds (Start Radio / Set Vibe / Nudge /
+  person switch / seed) are now mutually exclusive: a second one while one is in
+  flight is ignored ("a session is already starting") instead of overlapping, and
+  the Start Radio button disables itself while a session is starting.
+
 ## 1.4.0
 
 ### Picks that always exist, ordered from real tracks

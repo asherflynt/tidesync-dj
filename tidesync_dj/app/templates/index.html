@@ -278,6 +278,71 @@
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  /* ── DJ status modal (popup over the main UI) ── */
+  .dj-overlay {
+    position: fixed; inset: 0; z-index: 100; padding: 20px;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.55); opacity: 0; transition: opacity .18s;
+  }
+  .dj-overlay.show { display: flex; opacity: 1; }
+  .dj-modal {
+    background: var(--surface); border: 1px solid var(--outline);
+    border-radius: var(--r-lg); box-shadow: var(--e3);
+    width: min(560px, 100%); max-height: 86dvh; overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+  .dj-modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--outline);
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
+  }
+  .dj-modal-head h2 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .dj-close {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 6px; border-radius: var(--r-sm); display: flex; line-height: 0;
+  }
+  .dj-close:hover { color: var(--text); background: var(--surface2); }
+  .dj-modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 20px; }
+
+  .dj-loading { display: none; flex-direction: column; gap: 8px; }
+  .dj-loading.show { display: flex; }
+  .dj-loading-label { font-size: 13px; color: var(--text); font-weight: 600; }
+  .dj-bar { height: 8px; border-radius: var(--r-full); background: var(--surface3); overflow: hidden; }
+  .dj-bar-fill {
+    height: 100%; width: 0%; border-radius: var(--r-full);
+    background: var(--primary); transition: width .4s ease;
+  }
+  .dj-bar.indeterminate .dj-bar-fill { width: 38%; animation: dj-slide 1.1s ease-in-out infinite; }
+  @keyframes dj-slide { 0% { margin-left: -38%; } 100% { margin-left: 100%; } }
+
+  .dj-section-title {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted); margin-bottom: 10px;
+  }
+  .dj-empty { color: var(--muted); font-size: 13px; }
+  .dj-phases { display: flex; gap: 4px; margin-bottom: 12px; }
+  .dj-phase {
+    flex: 1 1 0; padding: 6px 6px; border-radius: var(--r-sm); min-width: 0;
+    background: var(--surface2); font-size: 11px; text-align: center;
+    color: var(--muted); border: 1px solid transparent;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dj-phase.active { color: var(--text); border-color: var(--primary); background: var(--surface3); }
+  .dj-arc-note { font-size: 12px; color: var(--muted); margin: 10px 0 0; font-style: italic; }
+  .dj-note { font-size: 14px; line-height: 1.5; margin: 0 0 8px; }
+  .dj-interp { font-size: 13px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
+  .dj-shift { color: var(--secondary); font-weight: 600; font-size: 13px; margin: 0 0 10px; }
+  .dj-picks { display: flex; flex-direction: column; gap: 8px; }
+  .dj-pick { font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
+  .dj-pick .e {
+    flex: 0 0 auto; color: var(--on-primary); background: var(--primary);
+    border-radius: var(--r-full); padding: 1px 7px; font-size: 11px;
+    font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .dj-pick .txt { min-width: 0; }
+  .dj-pick .q { font-weight: 600; }
+  .dj-pick .r { color: var(--muted); }
+
   /* ════ Tablet: 2 columns ════ */
   @media (min-width: 700px) {
     .bottomnav { display: none; }
@@ -456,6 +521,9 @@
             <div class="row" style="margin-top:10px">
               <button class="btn danger block" id="stopBtn" title="Stop playback, clear the queue, and pause the DJ"><svg class="icon sm"><use href="#i-stop"/></svg> Stop</button>
             </div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn ghost block" id="djStatusBtn" title="See what the DJ is doing behind the scenes"><svg class="icon sm"><use href="#i-radio"/></svg> What's the DJ doing?</button>
+            </div>
             <small id="playbackMsg" class="hint block"></small>
           </div>
 
@@ -546,6 +614,30 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- ── DJ status modal ── -->
+<div class="dj-overlay" id="djOverlay" role="dialog" aria-modal="true" aria-labelledby="djModalTitle">
+  <div class="dj-modal">
+    <div class="dj-modal-head">
+      <h2 id="djModalTitle"><svg class="icon sm"><use href="#i-radio"/></svg> What the DJ is doing</h2>
+      <button class="dj-close" id="djClose" aria-label="Close"><svg class="icon sm"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="dj-modal-body">
+      <div class="dj-loading" id="djLoading">
+        <div class="dj-loading-label" id="djLoadingLabel">Planning the set…</div>
+        <div class="dj-bar indeterminate" id="djBar"><div class="dj-bar-fill" id="djBarFill"></div></div>
+      </div>
+      <div>
+        <div class="dj-section-title">Energy arc</div>
+        <div id="djArc"><div class="dj-empty">No session yet — hit Start Radio.</div></div>
+      </div>
+      <div>
+        <div class="dj-section-title">The DJ's read</div>
+        <div id="djReason"><div class="dj-empty">Waiting on the first set…</div></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
   const api = (p) => p.replace(/^\//, "");
@@ -1062,15 +1154,21 @@
     if (sel.value) await postJSON("/players/select", { player_id: sel.value });
     btn.disabled = true; btn.textContent = "Starting…";
     msg.textContent = "Asking Claude to plan the opening set (30 tracks)…";
+    openDjModal();   // surface live progress so there's no urge to click again
     try {
       const r = await postJSON("/start_radio");
-      msg.textContent = r.ok
-        ? `Started — ${(r.decision && r.decision.enqueued) || 0} tracks queued.`
-        : `Couldn't start: ${r.error || "unknown error"}`;
+      if (r.busy) {
+        toast("A session is already starting…");
+        msg.textContent = "A session is already starting — hang tight.";
+      } else {
+        msg.textContent = r.ok
+          ? `Started — ${(r.decision && r.decision.enqueued) || 0} tracks queued.`
+          : `Couldn't start: ${r.error || "unknown error"}`;
+      }
     } catch (err) { msg.textContent = "Start radio failed."; }
     finally {
       btn.disabled = false; btn.innerHTML = '<svg class="icon sm"><use href="#i-play"/></svg> Start Radio';
-      refreshStatus(); refreshLog(); refreshQueue();
+      refreshStatus(); refreshLog(); refreshQueue(); refreshDjStatus(false);
     }
   });
   document.getElementById("stopBtn").addEventListener("click", async (e) => {
@@ -1142,6 +1240,129 @@
     finally { e.currentTarget.disabled = false; }
   });
 
+  // ── DJ status modal ──
+  const djOverlay = document.getElementById("djOverlay");
+  const startRadioBtn = document.getElementById("startRadio");
+  let djModalOpen = false;
+  let djSessionActive = false;   // a start-up phase (planning/picking/enqueuing) is live
+
+  function openDjModal() { djOverlay.classList.add("show"); djModalOpen = true; refreshDjStatus(false); }
+  function closeDjModal() { djOverlay.classList.remove("show"); djModalOpen = false; }
+  document.getElementById("djStatusBtn").addEventListener("click", openDjModal);
+  document.getElementById("djClose").addEventListener("click", closeDjModal);
+  djOverlay.addEventListener("click", (e) => { if (e.target === djOverlay) closeDjModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && djModalOpen) closeDjModal(); });
+
+  const PHASE_LABEL = { planning: "Planning the set…", picking: "Choosing tracks…", enqueuing: "Queueing tracks" };
+
+  function renderDjLoading(activity) {
+    const wrap = document.getElementById("djLoading");
+    const bar = document.getElementById("djBar");
+    const fill = document.getElementById("djBarFill");
+    const label = document.getElementById("djLoadingLabel");
+    const phase = (activity && activity.phase) || "idle";
+    djSessionActive = phase === "planning" || phase === "picking" || phase === "enqueuing";
+    wrap.classList.toggle("show", djSessionActive);
+    startRadioBtn.disabled = djSessionActive;
+    if (!djSessionActive) return;
+    if (phase === "enqueuing" && activity.target) {
+      const n = Math.min(activity.enqueued || 0, activity.target);
+      bar.classList.remove("indeterminate");
+      fill.style.width = Math.round((n / activity.target) * 100) + "%";
+      label.textContent = `Queueing tracks — ${n}/${activity.target}`;
+    } else {
+      bar.classList.add("indeterminate");
+      fill.style.width = "";
+      label.textContent = PHASE_LABEL[phase] || "Working…";
+    }
+  }
+
+  function djSparkline(arc) {
+    const pts = arc.filter(a => typeof a.energy === "number");
+    if (pts.length < 2) return "";
+    const W = 480, H = 90, pad = 8, n = pts.length;
+    const x = i => pad + (i * (W - 2 * pad)) / (n - 1);
+    const y = e => H - pad - ((e - 1) / 9) * (H - 2 * pad);   // energy 1..10
+    const line = pts.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p.energy).toFixed(1)).join(" ");
+    const area = `M${x(0).toFixed(1)} ${(H - pad).toFixed(1)} ` +
+      pts.map((p, i) => `L${x(i).toFixed(1)} ${y(p.energy).toFixed(1)}`).join(" ") +
+      ` L${x(n - 1).toFixed(1)} ${(H - pad).toFixed(1)} Z`;
+    const dots = pts.map((p, i) => {
+      const np = p.now_playing;
+      const t = `${p.track} · energy ${p.energy}/10` + (p.bpm ? ` · ${p.bpm} BPM` : "") + (p.camelot ? ` · ${p.camelot}` : "");
+      return `<circle cx="${x(i).toFixed(1)}" cy="${y(p.energy).toFixed(1)}" r="${np ? 4 : 2.5}" fill="${np ? 'var(--secondary)' : 'var(--primary)'}"><title>${esc(t)}</title></circle>`;
+    }).join("");
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="none" style="display:block;margin-top:6px">
+      <path d="${area}" fill="var(--primary)" opacity="0.12"/>
+      <path d="${line}" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}</svg>`;
+  }
+
+  function renderDjArc(plan, pos, arc) {
+    const box = document.getElementById("djArc");
+    const hasPlan = plan && plan.phases && plan.phases.length;
+    if (!hasPlan && !(arc && arc.length)) {
+      box.innerHTML = '<div class="dj-empty">No session yet — hit Start Radio.</div>';
+      return;
+    }
+    let html = "";
+    if (hasPlan) {
+      const cur = pos && pos.current_phase;
+      html += '<div class="dj-phases">';
+      for (const p of plan.phases) {
+        const active = p.name === cur ? " active" : "";
+        const grow = Math.max(1, p.approx_minutes || 1);
+        const tip = `${p.name} · energy ${p.target_energy || "?"}/10 · ~${p.approx_minutes || "?"} min${p.mood ? " · " + p.mood : ""}`;
+        html += `<div class="dj-phase${active}" style="flex-grow:${grow}" title="${esc(tip)}">${esc(p.name)}</div>`;
+      }
+      html += "</div>";
+      if (pos) html += `<div class="dj-empty">${pos.elapsed_minutes} min in · ${pos.pct_through}% through the arc</div>`;
+    }
+    if (arc && arc.length) html += djSparkline(arc);
+    if (plan && plan.arc_note) html += `<p class="dj-arc-note">${esc(plan.arc_note)}</p>`;
+    box.innerHTML = html;
+  }
+
+  function renderDjReason(d) {
+    const box = document.getElementById("djReason");
+    if (!d) { box.innerHTML = '<div class="dj-empty">Waiting on the first set…</div>'; return; }
+    let html = "";
+    if (d.dj_note) html += `<p class="dj-note">${esc(d.dj_note)}</p>`;
+    const vr = d.vibe_reading || {};
+    if (vr.interpretation) {
+      const aim = typeof vr.energy_target === "number"
+        ? ` (aiming energy ${vr.energy_target}/10${vr.mood ? ", " + esc(vr.mood) : ""})` : "";
+      html += `<p class="dj-interp">${esc(vr.interpretation)}${aim}</p>`;
+    }
+    if (d.mood_shift && d.mood_shift_reason) html += `<p class="dj-shift">Mood shift: ${esc(d.mood_shift_reason)}</p>`;
+    const tracks = (d.tracks || []).slice(0, 8);
+    if (tracks.length) {
+      html += '<div class="dj-picks">';
+      for (const t of tracks) {
+        const e = typeof t.energy === "number" ? `<span class="e">${t.energy}</span>` : "";
+        const r = t.reason ? ` — <span class="r">${esc(t.reason)}</span>` : "";
+        html += `<div class="dj-pick">${e}<span class="txt"><span class="q">${esc(t.query)}</span>${r}</span></div>`;
+      }
+      html += "</div>";
+    }
+    box.innerHTML = html || '<div class="dj-empty">No reasoning recorded yet.</div>';
+  }
+
+  let djInFlight = false;
+  async function refreshDjStatus(autoOpen) {
+    if (djInFlight) return;
+    djInFlight = true;
+    try {
+      const s = await getJSON("/dj/status");
+      renderDjLoading(s.activity);
+      renderDjArc(s.set_plan, s.arc_position, s.energy_arc);
+      renderDjReason(s.latest_decision);
+      if (autoOpen && djSessionActive && !djModalOpen) { djOverlay.classList.add("show"); djModalOpen = true; }
+    } catch (e) {
+      // keep the last render on a transient error
+    } finally { djInFlight = false; }
+  }
+
   // ── Boot + polling ──
   // Skip polling while the tab is hidden — no point hammering Music Assistant
   // over the WebSocket when nobody's looking. Each tick is gated on visibility,
@@ -1152,8 +1373,13 @@
   setInterval(whenVisible(refreshQueue), 5000);
   setInterval(whenVisible(refreshLog), 8000);
   setInterval(whenVisible(refreshPlayers), 15000);
+  // DJ status: slow poll always (auto-opens the modal when a session starts —
+  // incl. background top-ups); fast poll while the modal is open or a session
+  // is starting so the loading bar and arc move in near-real-time.
+  setInterval(whenVisible(() => refreshDjStatus(!djModalOpen)), 4000);
+  setInterval(whenVisible(() => { if (djModalOpen || djSessionActive) refreshDjStatus(false); }), 1500);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) { refreshStatus(); refreshQueue(); refreshLog(); refreshPlayers(); }
+    if (!document.hidden) { refreshStatus(); refreshQueue(); refreshLog(); refreshPlayers(); refreshDjStatus(!djModalOpen); }
   });
 </script>
 </body>
