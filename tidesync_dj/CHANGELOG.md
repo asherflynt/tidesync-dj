@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.0.0
+
+A rewrite for local libraries. Settings from 1.x still load; likes, blocks and
+people are kept. The old taste profile and tempo cache are no longer used.
+
+### Changed
+
+- **Every pick is a real library track.** Candidates come from Music Assistant's
+  sonic search and similar-track index instead of track names suggested by Claude.
+- **Sequencing is done in code** from measured tempo, key and energy: an energy
+  curve per set, smooth transitions and artist spacing.
+- **Rolling queue.** About 8 tracks are kept queued and re-planned on each top-up,
+  replacing 30-track blocks.
+- **Claude is optional.** It only turns a vibe into descriptions of sound. The
+  default model is now `claude-opus-5-5`.
+- **Skips are learned** from Music Assistant's playback reports.
+- **Energy up/down** re-plans what is next without cutting the current song.
+- Album art is served through the add-on, so it shows for local files.
+
+### Added
+
+- `keep_analysis_running` option: restarts Music Assistant's analysis scan until
+  the library is done.
+- Library and analysis coverage in the status views.
+
+### Fixed
+
+- Save Playlist failed for local tracks.
+- Un-liking a track did not remove the favourite in Music Assistant.
+- The vibe helper entity overwrote vibes set in the dashboard.
+
+### Removed
+
+- AcousticBrainz, MusicBrainz and GetSongBPM lookups; YouTube Music seeding;
+  the weather mood inputs; and the `playlist_provider`, `sonic_features`,
+  `getsongbpm_api_key`, `harmonic_sort` and `candidate_grounding` options.
+
 ## 1.5.1
 
 ### Docs

@@ -14,12 +14,15 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from claude_brain import ClaudeBrain
+import httpx
+from fastapi.responses import Response
+
 from config import load_config
+from engine import DJEngine
 from ha_client import HAClient
-from ma_client import MusicAssistantClient
-from scheduler import DJEngine
-from taste_profile import TasteProfile
+from library import Library
+from ma import MAClient
+from plan import ClaudePlanner
 from user_memory import UserStore
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -28,7 +31,7 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(nam
 # full request payloads (the listener context we send Claude) and can surface
 # request headers — i.e. the API key. Quieting them to WARNING keeps that data
 # out of the add-on log, matching the "never logged" promise in the README.
-for _noisy in ("websockets", "anthropic", "httpx", "httpcore", "urllib3", "ytmusicapi"):
+for _noisy in ("websockets", "anthropic", "httpx", "httpcore", "urllib3"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 _LOGGER = logging.getLogger("tidesync")
 
@@ -39,24 +42,19 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 async def lifespan(app: FastAPI):
     config = load_config()
     if not config.anthropic_api_key:
-        _LOGGER.warning("No anthropic_api_key configured — DJ decisions will fail.")
+        _LOGGER.info("No anthropic_api_key configured: vibes are read with keyword rules only.")
 
-    ma = MusicAssistantClient(
-        config.ma_ws_url,
-        username=config.ma_username,
-        password=config.ma_password,
-        token=config.ma_token,
-        preferred_provider=config.playlist_provider,
-    )
+    ma = MAClient(config.ma_ws_url, token=config.ma_token, username=config.ma_username,
+                  password=config.ma_password)
     ha = HAClient()
-    brain = ClaudeBrain(config.anthropic_api_key, config.claude_model)
-    taste = TasteProfile(config.data_dir)
+    planner = ClaudePlanner(config.anthropic_api_key, config.claude_model)
     users = UserStore(config.data_dir)
-    engine = DJEngine(config, ma, ha, brain, taste, users)
+    library = Library(config.data_dir / "library.db")
+    engine = DJEngine(config, ma, ha, planner, users, library)
 
     app.state.engine = engine
-    app.state.ma = ma
     app.state.config = config
+    app.state.http = httpx.AsyncClient(timeout=15.0)
 
     await engine.start()
     _LOGGER.info("TideSync DJ started (model=%s)", config.claude_model)
@@ -64,6 +62,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await engine.shutdown()
+        await app.state.http.aclose()
         _LOGGER.info("TideSync DJ stopped")
 
 
@@ -108,10 +107,6 @@ class UserAddBody(BaseModel):
 class UserRenameBody(BaseModel):
     slug: str
     name: str
-
-
-class SeedBody(BaseModel):
-    playlist: str
 
 
 class SeedRadioBody(BaseModel):
@@ -164,45 +159,49 @@ async def set_vibe(request: Request, body: VibeBody):
 
 @app.get("/queue")
 async def queue(request: Request):
-    ma: MusicAssistantClient = request.app.state.ma
-    q = await ma.get_queue()
-    return {
-        "queue_id": q.get("queue_id"),
-        "items_remaining": q.get("items_remaining", 0),
-        "current_index": q.get("current_index", 0),
-        "items": [ma._track_view(it) for it in q.get("items", [])],
-    }
+    return await _engine(request).queue_view()
 
 
 @app.get("/search")
 async def search(request: Request, q: str = ""):
-    ma: MusicAssistantClient = request.app.state.ma
     query = q.strip()
-    if not query:
-        return {"tracks": []}
-    return {"tracks": await ma.search_tracks(query)}
+    return {"tracks": await _engine(request).search(query) if query else []}
+
+
+@app.get("/art/{image_id}")
+async def art(request: Request, image_id: str):
+    """Proxy album art from Music Assistant so it loads inside HA ingress (same origin, HTTPS)."""
+    if not image_id.isalnum():
+        return Response(status_code=404)
+    config = request.app.state.config
+    url = f"http://{config.ma_host}:{config.ma_port}/imageproxy/{image_id}"
+    try:
+        upstream = await request.app.state.http.get(url, params={"size": 256})
+    except httpx.HTTPError:
+        return Response(status_code=502)
+    if upstream.status_code != 200:
+        return Response(status_code=404)
+    return Response(upstream.content, media_type=upstream.headers.get("content-type", "image/jpeg"),
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.post("/queue/play_next")
 async def queue_play_next(request: Request, body: PlayNextBody):
-    ma: MusicAssistantClient = request.app.state.ma
     # Only the two options the UI offers; anything else falls back to "next".
     option = body.option if body.option in ("next", "add") else "next"
-    ok = await ma.enqueue_uri(body.uri, option)
+    ok = await _engine(request).enqueue_uri(body.uri, option)
     return JSONResponse({"ok": ok}, status_code=200 if ok else 502)
 
 
 @app.post("/queue/remove")
 async def queue_remove(request: Request, body: QueueRemoveBody):
-    ma: MusicAssistantClient = request.app.state.ma
-    ok = await ma.remove_queue_item(body.item_id)
+    ok = await _engine(request).remove_queue_item(body.item_id)
     return JSONResponse({"ok": ok}, status_code=200 if ok else 502)
 
 
 @app.post("/queue/move")
 async def queue_move(request: Request, body: QueueMoveBody):
-    ma: MusicAssistantClient = request.app.state.ma
-    ok = await ma.move_queue_item(body.item_id, body.to_index)
+    ok = await _engine(request).move_queue_item(body.item_id, body.to_index)
     return JSONResponse({"ok": ok}, status_code=200 if ok else 502)
 
 
@@ -251,12 +250,6 @@ async def start_radio(request: Request):
 async def start_radio_seed(request: Request, body: SeedRadioBody):
     result = await _engine(request).start_radio_from_seed(body.uri, body.label)
     return JSONResponse(result, status_code=200 if result.get("ok") else 502)
-
-
-@app.post("/seed")
-async def seed(request: Request, body: SeedBody):
-    result = await _engine(request).seed_from_playlist(body.playlist.strip())
-    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
 
 @app.post("/playpause")

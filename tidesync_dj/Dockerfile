@@ -25,5 +25,5 @@ COPY rootfs/ /
 
 LABEL \
     io.hass.name="TideSync DJ" \
-    io.hass.description="AI-powered Tidal DJ using Music Assistant and Claude" \
+    io.hass.description="A DJ for your Music Assistant library, sequenced by measured tempo, key and energy" \
     io.hass.type="addon"

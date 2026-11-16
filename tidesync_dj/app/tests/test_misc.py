@@ -1,10 +1,8 @@
-"""Small pure helpers: time bucketing, host cleaning, playlist-id, provider detect."""
+"""Small pure helpers: time bucketing and host cleaning."""
 from datetime import datetime
 
-import scheduler
 from config import _clean_host
 from timectx import month_of_iso, slot_of_iso, time_of_day_slot
-from yt_seed import parse_playlist_id
 
 
 def test_time_of_day_slots():
@@ -27,16 +25,3 @@ def test_clean_host_strips_scheme_path_and_port():
     assert _clean_host("192.168.2.6") == "192.168.2.6"
     assert _clean_host("homeassistant.local/path") == "homeassistant.local"
     assert _clean_host("") == "homeassistant.local"
-
-
-def test_parse_playlist_id():
-    assert parse_playlist_id("https://music.youtube.com/playlist?list=PLabc123xyz") == "PLabc123xyz"
-    assert parse_playlist_id("PLabcdef1234") == "PLabcdef1234"
-    assert parse_playlist_id("not a playlist") is None
-    assert parse_playlist_id("") is None
-
-
-def test_detect_session_provider():
-    assert scheduler._detect_session_provider(["tidal://a", "tidal://b"]) == "tidal"
-    assert scheduler._detect_session_provider(["tidal://a", "spotify://b"]) is None
-    assert scheduler._detect_session_provider([]) is None

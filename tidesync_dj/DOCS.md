@@ -1,109 +1,85 @@
-# TideSync DJ — Setup
+# TideSync DJ
 
-An AI-powered DJ that controls your Music Assistant queue using Claude — works
-with any music source you've added to Music Assistant (Tidal, Spotify, your local
-library, etc.).
+A DJ for your own music library in Music Assistant. You give it a vibe (or a
+starting song); it builds a set from tracks you own and orders them by measured
+tempo, key and energy. There is no voice-over and nothing is invented: every
+pick is a real track in your library.
 
-## Before you start
+## How it works
 
-You need:
+1. **Library mirror.** TideSync keeps a local copy of your Music Assistant track
+   list, with tempo, key and an energy value for every analysed track.
+2. **Finding candidates.** A vibe is matched against how your tracks *sound*,
+   using Music Assistant's sonic search. A starting song or your recent likes
+   pull in tracks that sound similar. A few tracks you have not heard in a while
+   are mixed in for variety.
+3. **Sequencing.** Plain code orders the candidates to follow an energy curve
+   and keeps each transition close in tempo and key, with artists spaced out.
+4. **Rolling queue.** It keeps about 8 tracks queued and re-plans on each
+   top-up, so skips, likes and energy changes take effect within a song or two.
 
-1. **Music Assistant** installed (as an HA add-on or elsewhere) with at least one
-   **music provider** (Tidal, Spotify, local library, etc.) and one player.
-2. A **Music Assistant login.** Music Assistant 2.8+ requires authentication on
-   its WebSocket API. In Music Assistant, go to **Settings → Users** and create
-   a user with a username and password (or reuse an existing one). You'll enter
-   these in the add-on config below.
-3. An **Anthropic API key** — create one at <https://console.anthropic.com>
-   (it starts with `sk-ant-`). The key is stored privately by Home Assistant;
-   it is never written to logs, the dashboard, or this repository.
+Only analysed tracks are played. The dashboard's "What the DJ is doing" view
+shows how many of your tracks are analysed so far.
 
-## Quick start
+## Requirements in Music Assistant
 
-1. Open the **Configuration** tab of this add-on.
-2. Fill in the required fields:
-   - **Anthropic API key** — paste your `sk-ant-...` key.
-   - **Music Assistant host** — `homeassistant.local` if MA runs on this same
-     machine, otherwise your HA server's IP. A full `http://…:8095` URL is also
-     accepted (the scheme/port are ignored — the port comes from the next field).
-   - **Music Assistant port** — usually `8095`.
-   - **Music Assistant username / password** — the MA user from step 2 above.
-3. (Optional) Pick a **Claude model**. Default is `claude-sonnet-4-6` — a good
-   balance of quality and cost for frequent DJ decisions. Use
-   `claude-opus-4-8` for the sharpest sequencing.
-4. Click **Save**, then go to the **Info** tab and **Start** the add-on.
-5. Open the **TideSync DJ** panel from the Home Assistant sidebar. The
-   "Waiting for Music Assistant" banner clears once it connects and logs in;
-   if login fails, the banner shows the exact reason.
+- Music Assistant 2.10 or newer.
+- Your music added through a **filesystem provider** (local, SMB or NFS).
+  Music Assistant only analyses files from those providers in the background.
+- These providers enabled: **Smart Fades**, **Sonic Analysis** and
+  **Sonic Similarity**, with Sonic Similarity's Character index and free-text
+  search turned on.
 
-The dashboard resizes to your screen: on a phone you get a bottom tab bar
-(**Now Playing / Up Next / Search / Settings**); on a tablet or computer those
-panels are shown side by side. The **Playback**, **Set Vibe**, **Listening**,
-seed, and save controls all live under **Settings**.
+Analysis is slow: expect a few tracks a minute on a small machine. Music
+Assistant runs it nightly; the **Keep analysis running** option restarts the
+scan whenever it stops with tracks left.
 
-- In **Settings → Playback**, pick a Music Assistant player (your AirPlay zone,
-  etc.) and click **▶ Start Radio**. TideSync asks Claude for an opening set
-  from your taste profile, vibe, and time of day, plays it on that player, then
-  keeps the queue topped up automatically as it runs low.
-- (Or, if you start playback yourself in Music Assistant, TideSync will take
-  over topping up the queue once it runs low.)
-- **Up Next** shows what's coming. Tap the **×** to remove a track, or drag the
-  handle to reorder the queue.
-- **Search** lets you find any song and queue it without breaking the flow:
-  tap the **play-next** button to slot it right after the current track, or
-  **+** to add it to the end of the queue.
-- In **Settings → Set Vibe**, type a vibe ("late night focus", "high energy
-  cooking") and click **Set Vibe** to steer the mood; **Nudge DJ** forces a
-  decision immediately.
-- Use the **Listening** switcher (Mom / Dad / Kids, plus **＋** to add people) to
-  choose whose taste drives the DJ.
-- Click **♥** (Like) on the Now Playing card to favorite the current track
-  (synced through Music Assistant to whichever source the track came from), or
-  **🚫** to block it for 30 days.
-- Use **Save Session as a Playlist** to save everything you've heard this session
-  to a new playlist (created on the source the session played).
-- The **decision log** shows Claude's reasoning for each pick.
+## Configuration
 
-## Seed your taste from a YouTube Music playlist
+| Option | Meaning |
+|---|---|
+| `ma_host`, `ma_port` | Where Music Assistant is reachable. |
+| `ma_token` | Long-lived Music Assistant token (admin user for "Keep analysis running"). |
+| `ma_username`, `ma_password` | Alternative to a token. |
+| `anthropic_api_key` | Optional. Lets Claude interpret the vibe. |
+| `claude_model` | Model used when a key is set. |
+| `dj_tick_interval` | Seconds between queue checks. |
+| `vibe_input_text_entity` | Optional `input_text` helper; a change sets the vibe. |
+| `ha_action_entity` | Optional helper that drives the DJ from automations. |
+| `keep_analysis_running` | Restart Music Assistant's analysis scan until the library is done. |
 
-In the **Seed Taste** card, paste the URL of a **public** YouTube Music playlist
-and click **Seed**. TideSync reads the playlist's track and artist names and asks
-Claude to build your taste profile from them.
+### Driving it from Home Assistant
 
-- The playlist must be **public** — the fetch is unauthenticated.
-- This only shapes *what the DJ picks*. Playback still happens through your
-  **Music Assistant** providers; TideSync does not play YouTube Music itself.
+Write one of these to the action helper: `play`, `stop`, `skip`, `previous`,
+`nudge`, `energy up`, `energy down`, `vibe: rainy sunday`, `player: Kitchen`.
 
-## Optional: set the vibe from anywhere in HA
+## Claude is optional
 
-1. Create a helper: **Settings → Devices & Services → Helpers → Create Helper →
-   Text**, named e.g. `tidesync_vibe`.
-2. Put its entity id (e.g. `input_text.tidesync_vibe`) in the **Vibe helper
-   entity** option.
-3. Now setting that helper from any dashboard or the mobile app updates the DJ
-   vibe.
+Without an API key the vibe text goes straight to the sound search and keyword
+rules set the energy ("chill", "workout", "wind down" and so on). With a key,
+one small Claude request per vibe turns it into two to four descriptions of
+sound and an energy shape. Claude never chooses tracks.
 
-## Troubleshooting
+## Privacy
 
-- **"Waiting for Music Assistant" never clears** — the banner shows the reason.
-  Most often it's the MA login: Music Assistant 2.8+ requires authentication, so
-  set **Music Assistant username/password** in the Configuration tab (create a
-  user in MA under **Settings → Users**). "Invalid username or password" means
-  the credentials are wrong; "requires a login" means they're blank.
-- **"DJ decisions will fail" in the log** — the Anthropic API key is missing or
-  blank. Add it in the Configuration tab.
-- **No players in the dropdown** — Music Assistant isn't connected yet (see the
-  login note above). Idle players are listed even when they show as unavailable;
-  Start Radio will wake the one you pick.
-- **Start Radio says "none could be found"** — Claude picked tracks but Music
-  Assistant couldn't resolve them via its providers. Make sure at least one music
-  provider is connected and working in MA.
-- **Seeding fails** — the YouTube Music playlist must be **public**. Double-check
-  the URL contains a `list=` parameter.
-- **Like / Save playlist fails** — these need Music Assistant's favorites and
-  playlist commands plus a source provider that allows library edits (not every
-  provider does). Check the
-  add-on **Log** tab for the exact error; the command names live in
-  `app/ma_client.py` if your MA version differs.
-- **Music Assistant command errors** — MA's WebSocket command names can vary by
-  version; they're centralized in `app/ma_client.py` (`CMD_*` constants).
+- With no API key, nothing leaves your network.
+- With a key, each vibe change sends: the vibe text, the time of day, the active
+  listener's name (a label you choose) and their recent vibe phrases. No track
+  list, file path or play history is sent.
+- Likes, blocks and the library mirror are stored under the add-on's `/data`.
+
+## People, likes and blocks
+
+Each listener has their own likes and blocks. A like also marks the track as a
+favourite in Music Assistant. A block skips the track and keeps it out for a
+cooldown that grows each time it is blocked again. Skipped tracks are ranked
+lower for about two months.
+
+## HTTP API
+
+`GET /status`, `GET /dj/status`, `GET /queue`, `GET /search?q=`, `GET /players`,
+`GET /history`, `GET /users`, `POST /vibe`, `POST /start_radio`,
+`POST /start_radio_seed`, `POST /stop`, `POST /playpause`, `POST /skip`,
+`POST /previous`, `POST /nudge`, `POST /energy`, `POST /like`, `POST /block`,
+`POST /volume`, `POST /players/select`, `POST /save_playlist`,
+`POST /queue/play_next`, `POST /queue/remove`, `POST /queue/move`.

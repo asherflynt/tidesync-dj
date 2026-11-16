@@ -5,4 +5,3 @@ anthropic==0.69.0
 websockets==14.1
 httpx==0.28.1
 pydantic==2.10.4
-ytmusicapi>=1.7.0,<2.0.0

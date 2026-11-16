@@ -26,23 +26,11 @@ class Config:
     ma_username: str
     ma_password: str
     ma_token: str
-    # MA music provider used when saving a session playlist. Blank = auto-detect
-    # from the tracks that played; otherwise this forces a specific provider.
-    playlist_provider: str
-    # Optional HA entities whose state colours the DJ's mood (blank = ignored).
-    weather_entity: str
-    temperature_entity: str
     # Optional HA input_text/input_select whose value drives an action (play,
     # stop, skip, nudge, energy up/down, "vibe: …", "player: …"). Blank = off.
     ha_action_entity: str
-    # Sonic enrichment: look up real BPM/key by ISRC to ground sequencing.
-    sonic_features: bool
-    # Optional GetSongBPM API key (extra free BPM/key source; blank = off).
-    getsongbpm_api_key: str
-    # Reorder each resolved block by Camelot/tempo adjacency before queueing.
-    harmonic_sort: bool
-    # Resolve a real candidate pool first, then let Claude pick/order from it.
-    candidate_grounding: bool
+    # Restart Music Assistant's analysis scan whenever it stops with tracks pending.
+    keep_analysis_running: bool
     data_dir: Path
 
     @property
@@ -83,18 +71,11 @@ def load_config() -> Config:
             return os.environ[env_key]
         return opts.get(key, default)
 
-    def _get_bool(key: str, default: bool) -> bool:
-        # options.json carries real bools; an env override arrives as a string.
-        val = _get(key, default)
-        if isinstance(val, str):
-            return val.strip().lower() in ("1", "true", "yes", "on")
-        return bool(val)
-
     vibe_entity = _get("vibe_input_text_entity", "") or ""
 
     return Config(
         anthropic_api_key=str(_get("anthropic_api_key", "")),
-        claude_model=str(_get("claude_model", "claude-sonnet-4-6")),
+        claude_model=str(_get("claude_model", "claude-opus-5-5")),
         ma_host=_clean_host(str(_get("ma_host", "homeassistant.local"))),
         ma_port=int(_get("ma_port", 8095)),
         dj_tick_interval=int(_get("dj_tick_interval", 30)),
@@ -102,17 +83,8 @@ def load_config() -> Config:
         ma_username=str(_get("ma_username", "")),
         ma_password=str(_get("ma_password", "")),
         ma_token=str(_get("ma_token", "")),
-        # New generic key, falling back to the legacy `tidal_provider` so existing
-        # installs keep working. Default "tidal" preserves prior behaviour.
-        playlist_provider=str(
-            _get("playlist_provider", "") or _get("tidal_provider", "") or "tidal"
-        ),
-        weather_entity=str(_get("weather_entity", "") or ""),
-        temperature_entity=str(_get("temperature_entity", "") or ""),
         ha_action_entity=str(_get("ha_action_entity", "") or ""),
-        sonic_features=_get_bool("sonic_features", True),
-        getsongbpm_api_key=str(_get("getsongbpm_api_key", "") or ""),
-        harmonic_sort=_get_bool("harmonic_sort", False),
-        candidate_grounding=_get_bool("candidate_grounding", True),
+        keep_analysis_running=str(_get("keep_analysis_running", False)).strip().lower()
+        in ("1", "true", "yes", "on"),
         data_dir=DATA_DIR,
     )

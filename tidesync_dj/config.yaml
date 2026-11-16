@@ -1,7 +1,7 @@
 name: TideSync DJ
-version: "1.5.1"
+version: "2.0.0"
 slug: tidesync_dj
-description: AI-powered DJ for any Music Assistant source, powered by Claude
+description: A DJ for your Music Assistant library that sequences sets by measured tempo, key and energy
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj
 arch:
   - amd64
@@ -15,44 +15,39 @@ panel_title: TideSync DJ
 # request hassio_api / host access — least privilege.
 homeassistant_api: true
 options:
-  anthropic_api_key: ""
-  claude_model: "claude-sonnet-4-6"
   ma_host: "homeassistant.local"
   ma_port: 8095
-  dj_tick_interval: 30
+  ma_token: ""
   ma_username: ""
   ma_password: ""
-  ma_token: ""
+  anthropic_api_key: ""
+  claude_model: "claude-opus-5-5"
+  dj_tick_interval: 30
   vibe_input_text_entity: ""
-  playlist_provider: ""
-  weather_entity: ""
-  temperature_entity: ""
   ha_action_entity: ""
-  sonic_features: true
-  getsongbpm_api_key: ""
-  harmonic_sort: false
-  candidate_grounding: true
+  keep_analysis_running: false
 schema:
-  anthropic_api_key: str
-  claude_model: list(claude-sonnet-4-6|claude-opus-4-8|claude-haiku-4-5)
   ma_host: str
   ma_port: int
+  ma_token: password?
   ma_username: str?
   ma_password: password?
-  ma_token: password?
+  # Optional. Without a key the DJ reads vibes with keyword rules; with one,
+  # Claude turns the vibe into sound descriptions for the library search.
+  anthropic_api_key: password?
+  claude_model: list(claude-opus-5-5|claude-sonnet-5-5|claude-haiku-5-5|claude-sonnet-4-6|claude-opus-4-8|claude-haiku-4-5)
   dj_tick_interval: int
   vibe_input_text_entity: str?
+  ha_action_entity: str?
+  # Restart Music Assistant's nightly analysis scan whenever it stops with tracks
+  # still pending, so a large library is analysed around the clock. Needs an admin token.
+  keep_analysis_running: bool?
+  # No longer used (kept so options saved by 1.x still validate on upgrade).
   playlist_provider: str?
+  tidal_provider: str?
   weather_entity: str?
   temperature_entity: str?
-  ha_action_entity: str?
-  # Ground track sequencing in real BPM/key looked up by ISRC (free sources).
   sonic_features: bool?
-  # Optional GetSongBPM API key — enables an extra BPM/key fallback source.
   getsongbpm_api_key: str?
-  # Reorder each resolved block by Camelot/tempo adjacency before queueing.
   harmonic_sort: bool?
-  # Resolve a real candidate pool first, then let Claude pick/order from it.
   candidate_grounding: bool?
-  # Deprecated alias for playlist_provider; honoured if present on upgrade.
-  tidal_provider: str?

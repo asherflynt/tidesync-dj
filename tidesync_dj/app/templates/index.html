@@ -559,20 +559,6 @@
             <small class="hint block" style="margin-top:8px">A session starts when you Start Radio (or pick a song) and resets then; Stop ends it.</small>
           </div>
 
-          <div class="card">
-            <h2>Seed Taste from YouTube Music</h2>
-            <small class="hint block" style="margin-bottom:10px">
-              Public YouTube Music playlist → taste profile, then starts a queue
-              mixing songs from the playlist with new discoveries. Playback via
-              Tidal.
-            </small>
-            <div class="row">
-              <input type="text" id="seedInput" placeholder="https://music.youtube.com/playlist?list=…" />
-              <button class="btn" id="seedBtn">Seed &amp; Play</button>
-            </div>
-            <small id="seedMsg" class="hint block"></small>
-          </div>
-
           <details class="card">
             <summary><b>Advanced</b></summary>
 
@@ -1153,7 +1139,7 @@
     const btn = e.currentTarget;
     if (sel.value) await postJSON("/players/select", { player_id: sel.value });
     btn.disabled = true; btn.textContent = "Starting…";
-    msg.textContent = "Asking Claude to plan the opening set (30 tracks)…";
+    msg.textContent = "Choosing the opening tracks from your library…";
     openDjModal();   // surface live progress so there's no urge to click again
     try {
       const r = await postJSON("/start_radio");
@@ -1187,39 +1173,12 @@
     }
   });
 
-  // ── Seed / save ──
-  document.getElementById("seedBtn").addEventListener("click", async (e) => {
-    const input = document.getElementById("seedInput");
-    const msg = document.getElementById("seedMsg");
-    const v = input.value.trim();
-    if (!v) { msg.textContent = "Paste a public YouTube Music playlist URL first."; return; }
-    const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Seeding…";
-    msg.textContent = "Fetching playlist, analyzing your taste, and starting a queue…";
-    try {
-      const r = await postJSON("/seed", { playlist: v });
-      if (r.ok) {
-        const seeded = `Seeded from ${r.track_count} tracks — taste profile updated.`;
-        if (r.radio_started) {
-          msg.textContent = `${seeded} Started a queue (${r.enqueued || 0} tracks).`;
-        } else if (r.radio_error) {
-          msg.textContent = `${seeded} Couldn't start playback: ${r.radio_error}`;
-        } else {
-          msg.textContent = seeded;
-        }
-      } else {
-        msg.textContent = `Seed failed: ${r.error || "unknown error"}`;
-      }
-    } catch (err) { msg.textContent = "Seed failed."; }
-    finally {
-      btn.disabled = false; btn.textContent = "Seed & Play";
-      refreshStatus(); refreshLog(); refreshQueue();
-    }
-  });
+  // ── Save ──
   document.getElementById("savePlaylist").addEventListener("click", async (e) => {
     const name = document.getElementById("playlistName").value.trim();
     const msg = document.getElementById("saveMsg");
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Saving…";
-    msg.textContent = "Creating the playlist in Tidal…";
+    msg.textContent = "Creating the playlist in Music Assistant…";
     try {
       const r = await postJSON("/save_playlist", { name });
       msg.textContent = r.ok
