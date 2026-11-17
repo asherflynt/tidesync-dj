@@ -1,5 +1,5 @@
 name: TideSync DJ
-version: "2.0.1"
+version: "2.0.2"
 slug: tidesync_dj
 description: A DJ for your Music Assistant library that sequences sets by measured tempo, key and energy
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj

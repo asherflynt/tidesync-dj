@@ -35,7 +35,7 @@
     -webkit-tap-highlight-color: transparent;  /* we provide our own :active feedback */
   }
   /* Interactive controls: instant taps (no 300ms double-tap-zoom delay). */
-  button, .ctrl, .navbtn, .rowbtn, .drag-handle, .person, .person-add,
+  button, .ctrl, .navbtn, .rowbtn, .drag-handle, .person, .person-add, .vibe-chip,
   select, input, summary { touch-action: manipulation; }
   body { height: 100dvh; overflow: hidden; }
   .icon { width: 24px; height: 24px; fill: currentColor; flex: 0 0 auto; }
@@ -153,6 +153,18 @@
   .hint.block { display: block; margin-top: 8px; }
   .hint.block:empty { display: none; }
 
+  /* ── Preset vibe chips ── */
+  .vibe-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .vibe-chip {
+    background: var(--surface2); color: var(--muted); border: 1px solid var(--outline);
+    border-radius: var(--r-full); padding: 6px 11px; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: color .15s, border-color .15s, background .15s;
+    line-height: 1.1;
+  }
+  .vibe-chip:hover, .vibe-chip:active {
+    color: var(--primary); border-color: var(--primary); background: var(--surface3);
+  }
+
   /* ── Now Playing ── */
   .np-header {
     display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex: 0 0 auto; min-width: 0;
@@ -177,10 +189,23 @@
   .header-status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
   .pill.status { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
   .pill.model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
-  .pill.vibe { color: var(--primary); align-self: center; margin-top: 8px; }
+  button.pill.vibe {
+    color: var(--primary); cursor: pointer; font-family: inherit;
+    padding: 5px 12px; font-size: 12px; font-weight: 600;
+    transition: border-color .15s, background .15s;
+  }
+  button.pill.vibe:hover, button.pill.vibe:active {
+    border-color: var(--primary); background: var(--surface3);
+  }
+  .np-quick {
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px; flex-wrap: wrap; margin-top: 8px; width: 100%; max-width: 340px;
+  }
+  #quickStartRadio { display: none; margin-top: 8px; max-width: 280px; }
+  #quickStartRadio.show { display: inline-flex; }
 
   .art-wrap {
-    width: 100%; max-width: 380px; margin: 0 auto 14px; aspect-ratio: 1 / 1;
+    width: 100%; max-width: 340px; margin: 0 auto 14px; aspect-ratio: 1 / 1;
     border-radius: var(--r-lg); overflow: hidden; background: var(--surface2);
     display: flex; align-items: center; justify-content: center;
     box-shadow: var(--e3); flex: 0 0 auto;
@@ -281,10 +306,21 @@
   .person.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
   .person-add {
     background: var(--surface2); color: var(--muted); border: 1px solid var(--outline);
-    border-radius: var(--r-full); width: 36px; height: 36px; font-size: 16px; cursor: pointer;
+    border-radius: var(--r-full); width: 36px; height: 36px; font-size: 15px; cursor: pointer;
     display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
   }
   .person-add:hover, .person-add:active { color: var(--text); background: var(--surface3); }
+
+  /* Touch devices (phones & tablets): comfortable 44px minimum touch targets. */
+  @media (pointer: coarse) {
+    .ctrl.sm { width: 44px; height: 44px; }
+    .rowbtn { min-width: 44px; min-height: 44px; }
+    .drag-handle { min-width: 40px; min-height: 44px; }
+    .person { min-height: 42px; padding: 10px 16px; }
+    .person-add { width: 42px; height: 42px; }
+    .vibe-chip { padding: 8px 13px; font-size: 13px; }
+    button.pill.vibe { padding: 7px 14px; font-size: 13px; }
+  }
 
   /* ── Decision log ── */
   .log { display: grid; gap: 10px; }
@@ -386,7 +422,7 @@
       grid-template-rows: 1fr; min-height: 0;
     }
     .panel { display: flex !important; padding: 0; height: auto; min-height: 0; }
-    /* col 1 = Now Playing + Search; col 2 = Up Next + Settings. */
+    /* col 1 = Now Playing + Search; col 2 = DJ Controls + Up Next. */
     #g-left, #g-right { display: flex; flex-direction: column; min-height: 0; overscroll-behavior: contain; }
     /* Left column is a fixed-height frame: its children divide the viewport
        height (art shrinks, results scroll) instead of the column overflowing. */
@@ -394,15 +430,19 @@
     #g-right { overflow-y: auto; }
     #g-left > .panel, #g-right > .panel { margin-bottom: var(--gap); }
     #g-left > .panel:last-child, #g-right > .panel:last-child { margin-bottom: 0; }
+    /* On 2-column tablet, place DJ Controls above Up Next so speaker, Start Radio,
+       and Vibe are immediately visible without scrolling past the queue. */
+    @media (max-width: 959px) {
+      #g-right > #p-settings { order: -1; margin-bottom: var(--gap); }
+      #g-right > #p-queue { margin-bottom: 0; }
+    }
     .panel#p-np {
       background: var(--surface); border: 1px solid var(--outline);
       border-radius: var(--r-lg); padding: 16px 18px; box-shadow: var(--e2);
       justify-content: flex-start; flex: 0 0 auto; min-height: 0; overflow: hidden;
     }
-    /* Keep the Now Playing card compact on laptop viewports so Search below it
-       has plenty of room for results. */
     .panel#p-np .art-wrap {
-      width: min(100%, 21vh, 210px); height: auto; aspect-ratio: 1 / 1;
+      width: min(100%, 24vh, 230px); height: auto; aspect-ratio: 1 / 1;
       margin-bottom: 10px;
     }
     .panel#p-np .np-header { margin-bottom: 8px; }
@@ -412,14 +452,13 @@
     .panel#p-np .controls .ctrl { width: 44px; height: 44px; }
     .panel#p-np .controls .ctrl.primary { width: 52px; height: 52px; }
     .panel#p-np .volrow { margin-top: 4px; }
-    .panel#p-np .pill.vibe { margin-top: 6px; }
     /* Search fills the height left under Now Playing; only its results scroll. */
     .panel#p-search { flex: 1 1 auto; min-height: 0; }
     .panel#p-search .card { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     .toast { bottom: 28px; }
   }
 
-  /* ════ Laptop / Desktop: 3 balanced columns ════ (Now Playing+Search | Up Next | Settings) */
+  /* ════ Laptop / Desktop: 3 balanced columns ════ (Now Playing+Search | Up Next | DJ Controls) */
   @media (min-width: 960px) {
     /* Use flexible fr units on all three columns so CSS Grid never expands
        columns 1 and 2 at the expense of starving column 3 on laptop widths. */
@@ -428,6 +467,7 @@
     }
     #g-right { display: contents; }           /* dissolve: queue + settings become columns */
     #g-right > .panel { margin-bottom: 0; }
+    .panel#p-np .art-wrap { width: min(100%, 21vh, 210px); }
     .panel#p-queue, .panel#p-settings { height: 100%; overflow-y: auto; padding-right: 2px; }
   }
 </style>
@@ -502,8 +542,13 @@
           <svg class="icon sm" aria-hidden="true"><use href="#i-volume"/></svg>
           <input type="range" id="volume" min="0" max="100" value="50" aria-label="Volume" />
         </div>
+        <button class="btn block" id="quickStartRadio"><svg class="icon sm"><use href="#i-play"/></svg> Start Radio</button>
         <div class="ctrl-msg" id="likeMsg"></div>
-        <span class="pill vibe" id="vibePill">no vibe set</span>
+        <div class="np-quick">
+          <button class="ctrl sm" id="npEnergyDown" title="Less energy"><svg class="icon sm"><use href="#i-energy-down"/></svg></button>
+          <button class="pill vibe" id="vibePill" type="button" title="Tap to change vibe">no vibe set</button>
+          <button class="ctrl sm" id="npEnergyUp" title="More energy"><svg class="icon sm"><use href="#i-energy-up"/></svg></button>
+        </div>
       </div>
     </section>
 
@@ -523,7 +568,7 @@
 
     </div><!-- /g-left -->
 
-    <!-- col 2: Up Next + Settings -->
+    <!-- col 2: Up Next + DJ Controls -->
     <div class="group" id="g-right">
 
       <!-- ════ UP NEXT ════ -->
@@ -534,9 +579,9 @@
         </div>
       </section>
 
-        <!-- ════ SETTINGS ════ -->
+        <!-- ════ DJ CONTROLS ════ -->
         <section class="panel" id="p-settings" data-panel="settings">
-          <div class="panel-title">Settings</div>
+          <div class="panel-title">DJ Controls</div>
 
           <div class="banner warn" id="setupBanner">
             <b>Setup needed.</b> No Anthropic API key is configured. Open this add-on's
@@ -568,7 +613,15 @@
           <div class="card">
             <h2>Set Vibe</h2>
             <div class="row">
-              <input type="text" id="vibeInput" placeholder="e.g. late night focus, high energy cooking" />
+              <input type="text" id="vibeInput" placeholder="e.g. late night focus, high energy cooking" enterkeyhint="go" />
+            </div>
+            <div class="vibe-chips" id="vibeChips">
+              <button type="button" class="vibe-chip" data-vibe="chill relaxed">Chill</button>
+              <button type="button" class="vibe-chip" data-vibe="deep focus">Focus</button>
+              <button type="button" class="vibe-chip" data-vibe="upbeat feel good">Upbeat</button>
+              <button type="button" class="vibe-chip" data-vibe="warm dinner">Dinner</button>
+              <button type="button" class="vibe-chip" data-vibe="party high energy">Party</button>
+              <button type="button" class="vibe-chip" data-vibe="late night groove">Late Night</button>
             </div>
             <div class="row nowrap" style="margin-top:8px">
               <button class="btn grow" id="setVibe">Set Vibe</button>
@@ -582,6 +635,7 @@
             <h2>Listening</h2>
             <div class="row">
               <span id="peopleBtns"></span>
+              <button class="person-add" id="editPerson" title="Rename or delete active listener">✎</button>
               <button class="person-add" id="addPerson" title="Add a person">＋</button>
             </div>
           </div>
@@ -648,7 +702,7 @@
     <button class="navbtn active" data-tab="np"><svg class="icon"><use href="#i-disc"/></svg>Now Playing</button>
     <button class="navbtn" data-tab="queue"><svg class="icon"><use href="#i-queue"/></svg>Up Next</button>
     <button class="navbtn" data-tab="search"><svg class="icon"><use href="#i-search"/></svg>Search</button>
-    <button class="navbtn" data-tab="settings"><svg class="icon"><use href="#i-settings"/></svg>Settings</button>
+    <button class="navbtn" data-tab="settings"><svg class="icon"><use href="#i-radio"/></svg>DJ Controls</button>
   </nav>
 </div>
 
@@ -796,6 +850,7 @@
         s.dj_stopped ? "Stopped" : (s.now_playing || "—");
       document.getElementById("meta").textContent =
         `${s.time_of_day} · ${s.items_remaining} in queue · ${s.session_minutes} min`;
+      document.getElementById("quickStartRadio").classList.toggle("show", !!s.dj_stopped);
 
       const art = document.getElementById("albumArt");
       const placeholder = document.getElementById("albumPlaceholder");
@@ -1121,14 +1176,34 @@
   });
 
   // ── Vibe / nudge ──
-  document.getElementById("setVibe").addEventListener("click", async (e) => {
-    const v = document.getElementById("vibeInput").value.trim();
+  async function applyVibe(promptText) {
+    const v = (promptText || "").trim();
     if (!v) return;
-    const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Rebuilding…";
+    const btn = document.getElementById("setVibe");
+    btn.disabled = true; btn.textContent = "Rebuilding…";
     try {
       await postJSON("/vibe", { prompt: v });
       document.getElementById("vibeInput").value = "";
-    } finally { btn.disabled = false; btn.textContent = "Set Vibe"; refreshStatus(); refreshLog(); refreshQueue(); }
+      toast(`Vibe: ${v}`);
+    } finally {
+      btn.disabled = false; btn.textContent = "Set Vibe";
+      refreshStatus(); refreshLog(); refreshQueue();
+    }
+  }
+  document.getElementById("setVibe").addEventListener("click", () => {
+    applyVibe(document.getElementById("vibeInput").value);
+  });
+  document.getElementById("vibeInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") applyVibe(e.currentTarget.value);
+  });
+  document.getElementById("vibeChips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".vibe-chip");
+    if (chip) applyVibe(chip.dataset.vibe);
+  });
+  document.getElementById("vibePill").addEventListener("click", () => {
+    if (window.matchMedia("(max-width: 699px)").matches) showTab("settings");
+    const input = document.getElementById("vibeInput");
+    if (input) input.focus();
   });
   document.getElementById("nudge").addEventListener("click", async (e) => {
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Rebuilding…";
@@ -1136,11 +1211,15 @@
   });
   async function nudgeEnergy(direction, btn) {
     btn.disabled = true;
-    try { await postJSON("/energy", { direction }); }
-    finally { btn.disabled = false; refreshStatus(); refreshLog(); refreshQueue(); }
+    try {
+      await postJSON("/energy", { direction });
+      toast(direction === "up" ? "Energy ↑" : "Energy ↓");
+    } finally { btn.disabled = false; refreshStatus(); refreshLog(); refreshQueue(); }
   }
   document.getElementById("energyUp").addEventListener("click", (e) => nudgeEnergy("up", e.currentTarget));
   document.getElementById("energyDown").addEventListener("click", (e) => nudgeEnergy("down", e.currentTarget));
+  document.getElementById("npEnergyUp").addEventListener("click", (e) => nudgeEnergy("up", e.currentTarget));
+  document.getElementById("npEnergyDown").addEventListener("click", (e) => nudgeEnergy("down", e.currentTarget));
 
   // ── People ──
   function renderPeople(people) {
@@ -1149,16 +1228,7 @@
       `<button class="person${p.active ? " active" : ""}" data-slug="${esc(p.slug)}">${esc(p.name)}</button>`
     ).join("");
   }
-  document.getElementById("peopleBtns").addEventListener("click", async (e) => {
-    const btn = e.target.closest(".person");
-    if (!btn || btn.classList.contains("active")) return;
-    btn.disabled = true;
-    try { await postJSON("/users/select", { slug: btn.dataset.slug }); }
-    finally { refreshStatus(); refreshLog(); }
-  });
-  // Double-click a listener to rename (or clear the name to delete them).
-  document.getElementById("peopleBtns").addEventListener("dblclick", async (e) => {
-    const btn = e.target.closest(".person");
+  async function promptEditPerson(btn) {
     if (!btn) return;
     const cur = btn.textContent.trim();
     const name = prompt(`Rename "${cur}" (blank to delete):`, cur);
@@ -1172,7 +1242,41 @@
       }
       return;
     }
-    if (trimmed !== cur) { await postJSON("/users/rename", { slug: btn.dataset.slug, name: trimmed }); refreshStatus(); }
+    if (trimmed !== cur) {
+      await postJSON("/users/rename", { slug: btn.dataset.slug, name: trimmed });
+      refreshStatus();
+    }
+  }
+  let personHoldTimer = null;
+  let personHeld = false;
+  document.getElementById("peopleBtns").addEventListener("pointerdown", (e) => {
+    const btn = e.target.closest(".person");
+    if (!btn) return;
+    personHeld = false;
+    clearTimeout(personHoldTimer);
+    personHoldTimer = setTimeout(() => {
+      personHeld = true;
+      promptEditPerson(btn);
+    }, 550);
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(ev =>
+    document.getElementById("peopleBtns").addEventListener(ev, () => clearTimeout(personHoldTimer))
+  );
+  document.getElementById("peopleBtns").addEventListener("click", async (e) => {
+    if (personHeld) { personHeld = false; return; }
+    const btn = e.target.closest(".person");
+    if (!btn || btn.classList.contains("active")) return;
+    btn.disabled = true;
+    try { await postJSON("/users/select", { slug: btn.dataset.slug }); }
+    finally { refreshStatus(); refreshLog(); }
+  });
+  // Double-click or tap ✎ to rename/delete a listener.
+  document.getElementById("peopleBtns").addEventListener("dblclick", (e) => {
+    promptEditPerson(e.target.closest(".person"));
+  });
+  document.getElementById("editPerson").addEventListener("click", () => {
+    const active = document.querySelector("#peopleBtns .person.active") || document.querySelector("#peopleBtns .person");
+    if (active) promptEditPerson(active);
   });
   document.getElementById("addPerson").addEventListener("click", async () => {
     const name = (prompt("Add a person (name):") || "").trim();
@@ -1200,96 +1304,81 @@
     if (r && (r.moved || (r.transferred && r.transferred !== false))) toast("Moved playback to this player");
     refreshStatus(); refreshQueue();
   });
-  document.getElementById("startRadio").addEventListener("click", async (e) => {
-    const sel = document.getElementById("playerSelect");
+  async function triggerStartRadio(btn) {
     const msg = document.getElementById("playbackMsg");
-    const btn = e.currentTarget;
-    if (sel.value) await postJSON("/players/select", { player_id: sel.value });
-    btn.disabled = true; btn.textContent = "Starting…";
-    msg.textContent = "Choosing the opening tracks from your library…";
-    openDjModal();   // surface live progress so there's no urge to click again
+    btn.disabled = true; msg.textContent = "Building your first set…";
+    openDjModal();
+    refreshDjStatus(false);
     try {
       const r = await postJSON("/start_radio");
-      if (r.busy) {
-        toast("A session is already starting…");
-        msg.textContent = "A session is already starting — hang tight.";
-      } else {
-        msg.textContent = r.ok
-          ? `Started — ${(r.decision && r.decision.enqueued) || 0} tracks queued.`
-          : `Couldn't start: ${r.error || "unknown error"}`;
-      }
-    } catch (err) { msg.textContent = "Start radio failed."; }
-    finally {
-      btn.disabled = false; btn.innerHTML = '<svg class="icon sm"><use href="#i-play"/></svg> Start Radio';
+      msg.textContent = r.ok ? `Started (${r.enqueued} tracks queued)` : (r.error || "Could not start radio");
+      if (r.ok) toast(`Radio started (${r.enqueued} tracks queued)`);
+    } finally {
+      btn.disabled = false;
       refreshStatus(); refreshLog(); refreshQueue(); refreshDjStatus(false);
     }
-  });
+  }
+  document.getElementById("startRadio").addEventListener("click", (e) => triggerStartRadio(e.currentTarget));
+  document.getElementById("quickStartRadio").addEventListener("click", (e) => triggerStartRadio(e.currentTarget));
   document.getElementById("stopBtn").addEventListener("click", async (e) => {
-    const btn = e.currentTarget;
-    const msg = document.getElementById("playbackMsg");
-    btn.disabled = true; btn.innerHTML = '<svg class="icon sm"><use href="#i-stop"/></svg> Stopping…';
+    const btn = e.currentTarget; const msg = document.getElementById("playbackMsg");
+    btn.disabled = true;
     try {
       const r = await postJSON("/stop");
-      msg.textContent = r.ok
-        ? "Stopped — queue cleared. Press Start Radio to resume."
-        : `Couldn't stop: ${r.error || "unknown error"}`;
-    } catch (err) { msg.textContent = "Stop failed."; }
-    finally {
-      btn.disabled = false; btn.innerHTML = '<svg class="icon sm"><use href="#i-stop"/></svg> Stop';
-      refreshStatus(); refreshQueue();
-    }
+      msg.textContent = r.ok ? "Stopped and cleared the queue." : (r.error || "Stop failed");
+    } finally { btn.disabled = false; refreshStatus(); refreshQueue(); }
   });
 
-  // ── Save ──
+  // ── Advanced: playlist export + taste profiles ──
   document.getElementById("savePlaylist").addEventListener("click", async (e) => {
-    const name = document.getElementById("playlistName").value.trim();
-    const msg = document.getElementById("saveMsg");
-    const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Saving…";
-    msg.textContent = "Creating the playlist in Music Assistant…";
+    const btn = e.currentTarget; const msg = document.getElementById("saveMsg");
+    const name = document.getElementById("playlistName").value.trim() || null;
+    btn.disabled = true; msg.textContent = "Creating playlist…";
     try {
       const r = await postJSON("/save_playlist", { name });
-      msg.textContent = r.ok
-        ? `Saved "${r.playlist}" with ${r.track_count} track(s).`
-        : `Couldn't save: ${r.error || "unknown error"}`;
-    } catch (err) { msg.textContent = "Save failed."; }
-    finally { btn.disabled = false; btn.textContent = "Create playlist"; }
+      msg.textContent = r.ok ? `Saved "${r.name}" (${r.added}/${r.total} tracks)` : (r.error || "Save failed");
+      if (r.ok) document.getElementById("playlistName").value = "";
+    } finally { btn.disabled = false; }
   });
-  document.getElementById("viewTasteBtn").addEventListener("click", async (e) => {
+  document.getElementById("viewTasteBtn").addEventListener("click", async () => {
     const box = document.getElementById("tasteView");
-    e.currentTarget.disabled = true;
+    box.textContent = "Loading…";
     try {
       const { people } = await getJSON("/users/profiles");
-      box.innerHTML = (people || []).map(p =>
-        `<div style="margin:8px 0"><b>${esc(p.name)}${p.active ? " (active)" : ""}</b><br>${esc(p.summary)}</div>`
-      ).join("") || "No profiles yet.";
-    } catch (err) { box.textContent = "Couldn't load taste profiles."; }
-    finally { e.currentTarget.disabled = false; }
+      box.innerHTML = people.map(p => {
+        const likes = (p.liked || []).slice(-8).map(esc).join(", ") || "none yet";
+        const blocks = (p.blocked || []).map(esc).join(", ") || "none";
+        return `<div style="margin-top:6px"><b>${esc(p.name)}</b> — likes: ${likes} · blocked: ${blocks}</div>`;
+      }).join("");
+    } catch (e) { box.textContent = "Could not load profiles"; }
   });
 
   // ── DJ status modal ──
   const djOverlay = document.getElementById("djOverlay");
-  const startRadioBtn = document.getElementById("startRadio");
   let djModalOpen = false;
-  let djSessionActive = false;   // a start-up phase (planning/picking/enqueuing) is live
-
-  function openDjModal() { djOverlay.classList.add("show"); djModalOpen = true; refreshDjStatus(false); }
+  let djSessionActive = false;
+  function openDjModal() { djOverlay.classList.add("show"); djModalOpen = true; }
   function closeDjModal() { djOverlay.classList.remove("show"); djModalOpen = false; }
-  document.getElementById("djStatusBtn").addEventListener("click", openDjModal);
+  document.getElementById("djStatusBtn").addEventListener("click", () => { openDjModal(); refreshDjStatus(false); });
   document.getElementById("djClose").addEventListener("click", closeDjModal);
   djOverlay.addEventListener("click", (e) => { if (e.target === djOverlay) closeDjModal(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && djModalOpen) closeDjModal(); });
 
-  const PHASE_LABEL = { planning: "Planning the set…", picking: "Choosing tracks…", enqueuing: "Queueing tracks" };
+  const PHASE_LABEL = {
+    starting: "Starting up…",
+    planning_arc: "Mapping out the energy arc…",
+    choosing_tracks: "Picking tracks for the room…",
+    enqueuing: "Queueing tracks in Music Assistant…",
+  };
 
   function renderDjLoading(activity) {
     const wrap = document.getElementById("djLoading");
+    const label = document.getElementById("djLoadingLabel");
     const bar = document.getElementById("djBar");
     const fill = document.getElementById("djBarFill");
-    const label = document.getElementById("djLoadingLabel");
-    const phase = (activity && activity.phase) || "idle";
-    djSessionActive = phase === "planning" || phase === "picking" || phase === "enqueuing";
+    const phase = activity && activity.phase;
+    djSessionActive = !!phase && phase !== "idle";
     wrap.classList.toggle("show", djSessionActive);
-    startRadioBtn.disabled = djSessionActive;
     if (!djSessionActive) return;
     if (phase === "enqueuing" && activity.target) {
       const n = Math.min(activity.enqueued || 0, activity.target);

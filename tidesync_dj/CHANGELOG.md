@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.2
+
+### Improved
+
+- **Phone & tablet UX.** Added a quick **Start Radio** CTA directly on Now
+  Playing when playback is stopped, made the vibe badge tappable to jump to Set
+  Vibe, added quick **Energy − / +** buttons beside Like & Block on Now Playing,
+  and added 1-tap preset vibe chips (*Chill*, *Focus*, *Upbeat*, *Dinner*,
+  *Party*, *Late Night*).
+- **Tablet 2-column layout.** Placed **DJ Controls** above **Up Next** in the
+  right column on 2-column tablet viewports (`700px–959px`) so Start Radio, Set
+  Vibe and Listener controls stay immediately reachable without scrolling past
+  the queue.
+- **Touch targets & listener editing on touchscreens.** Enforced ≥ 44 px touch
+  targets across transport, volume, chips and queue buttons on coarse-pointer
+  devices, and added long-press (plus an explicit `✎` edit button) to rename or
+  remove listeners without needing a mouse right-click.
+- **Automatic sonic similarity index refresh.** `Library.sync_analysed` now
+  triggers `sonic_similarity/rebuild_index` before syncing analyzed tracks so
+  newly analyzed tracks are immediately searchable via Music Assistant's
+  USearch/CLAP index even while background tasks are busy.
+
 ## 2.0.1
 
 ### Fixed
