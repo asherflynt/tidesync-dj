@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import engine as engine_module
 from engine import AHEAD_TARGET, OPENING, DJEngine, track_view
 from library import Library
 from ma import MAError
@@ -251,8 +252,11 @@ async def test_clear_error_when_nothing_is_analysed(tmp_path):
                              vibe_input_text_entity=None, ha_action_entity="")
     engine = DJEngine(config, ma, None, ClaudePlanner("", "x"), UserStore(tmp_path), lib)
     result = await engine.start_radio()
-    assert not result["ok"] and "analys" in result["error"]
+    assert not result["ok"] and "still being prepared" in result["error"]
+    assert "None of your 80 songs are ready yet" in result["error"]
     assert engine._dj_stopped and not ma.queue
+    dj = await engine.dj_status()
+    assert "None of your 80 songs are ready yet" in dj["set_plan"]["arc_note"]
     lib.close()
 
 
@@ -263,6 +267,8 @@ async def test_status_and_queue_views_have_dashboard_fields(rig):
     for key in ("now_playing", "player_state", "items_remaining", "people", "stats", "library", "model"):
         assert key in status
     assert status["items_remaining"] == OPENING - 1 and status["library"]["analysed"] == 80
+    library = status["library"]
+    assert library["in_sound_index"] == 80 and library["ma_coverage"]["state"] == "unknown"
     view = await engine.queue_view()
     assert len(view["items"]) == OPENING and view["current_index"] == 0
     dj = await engine.dj_status()
@@ -318,3 +324,109 @@ async def test_keep_scan_running_restarts_only_a_stopped_scan_with_work_left(rig
     state.update(status="success", pending=0)
     await engine._keep_scan_running()
     assert runs() == 1
+
+
+def _patch_coverage(ma, reply):
+    """Answer audio_analysis/coverage with ``reply(domain)`` (a dict, or an exception to raise)."""
+    real = ma.cmd
+
+    async def cmd(command, timeout=60, **args):
+        if command == "audio_analysis/coverage":
+            ma.calls.append((command, args))
+            answer = reply(args["aa_domain"])
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return await real(command, timeout=timeout, **args)
+
+    ma.cmd = cmd
+
+
+def _coverage_calls(ma):
+    return sum(1 for c, _ in ma.calls if c == "audio_analysis/coverage")
+
+
+async def test_coverage_without_admin_degrades_gracefully(rig, caplog):
+    engine, ma, _ = rig
+    denied = MAError("audio_analysis/coverage", 21, "This command requires the system:manage scope")
+    _patch_coverage(ma, lambda domain: denied)
+    with caplog.at_level("INFO", logger="tidesync.engine"):
+        await engine._read_coverage()
+        await engine._read_coverage()  # paused: not asked again for a while
+        engine._coverage_skip_until.clear()
+        await engine._read_coverage()  # asked again, but not logged again
+    assert _coverage_calls(ma) == 2
+    assert len([r for r in caplog.records if "analysis progress" in r.getMessage()]) == 1
+    coverage = (await engine.status())["library"]["ma_coverage"]
+    assert coverage["available"] is False and coverage["state"] == "unavailable"
+    assert coverage["reason"] == "needs_admin" and "admin" in coverage["message"]
+    assert coverage["eta_seconds"] is None and engine._expected_analysed() is None
+    # the DJ itself keeps working
+    assert (await engine.start_radio())["ok"]
+
+
+async def test_coverage_is_recorded_and_reported(rig):
+    engine, ma, _ = rig
+    counts = {"sonic_analysis": {"analyzed": 1609, "pending": 271_844},
+              "smart_fades": {"analyzed": 1650, "pending": 271_800}}
+    _patch_coverage(ma, lambda domain: {**counts[domain], "stale_version": 0, "analysis_version": 1})
+    await engine._read_coverage()
+    assert engine._expected_analysed() == 1650 and engine._pending() == 271_844
+    coverage = (await engine.status())["library"]["ma_coverage"]
+    assert coverage["available"] and coverage["state"] == "measuring" and coverage["eta_seconds"] is None
+    assert (coverage["analysed"], coverage["pending"]) == (1609, 271_844)
+    assert set(coverage["domains"]) == {"sonic_analysis", "smart_fades"}
+
+
+async def test_coverage_for_a_disabled_provider_is_per_domain(rig):
+    engine, ma, _ = rig
+    _patch_coverage(ma, lambda domain: MAError("x", 1, "smart_fades is not available")
+                    if domain == "smart_fades" else {"analyzed": 10, "pending": 5})
+    await engine._read_coverage()
+    coverage = (await engine.status())["library"]["ma_coverage"]
+    assert coverage["available"] and coverage["domains"]["sonic_analysis"]["analysed"] == 10
+    assert engine._coverage_errors == {"smart_fades": "not_enabled"}
+    assert engine._expected_analysed() == 10
+    await engine._read_coverage()  # the disabled one is not asked again for a while
+    assert [a["aa_domain"] for c, a in ma.calls if c == "audio_analysis/coverage"] == [
+        "sonic_analysis", "smart_fades", "sonic_analysis"]
+
+
+def test_coarse_durations():
+    from engine import coarse_duration
+    assert coarse_duration(3 * 3600) == "less than a day"
+    assert coarse_duration(5 * 86400) == "about 5 days"
+    assert coarse_duration(30 * 86400) == "about 4 weeks"
+    assert coarse_duration(200 * 86400) == "about 7 months"
+
+
+def test_ma_error_kinds():
+    assert MAError("x", 8, "Invalid command: sonic_similarity/text_search").unsupported
+    assert MAError("x", 21, "This command requires the system:manage scope").not_permitted
+    assert not MAError("x", 1, "smart_fades is not available").not_permitted
+
+
+async def test_sync_pass_uses_ma_count_and_catches_up_quickly(rig, monkeypatch):
+    engine, ma, lib = rig
+    _patch_coverage(ma, lambda domain: {"analyzed": 5000, "pending": 100})
+    seen, sleeps = {}, []
+
+    async def sync_features(ma_, limit=2000, *, expected=None, **kw):
+        seen["expected"] = expected
+        return {"filled": 3000, "checked": 9000, "more": True, "caught_up": False, "seconds": 180.0}
+
+    class Stop(Exception):
+        pass
+
+    async def sleep(seconds):
+        sleeps.append(seconds)
+        raise Stop
+
+    monkeypatch.setattr(lib, "sync_features", sync_features)
+    monkeypatch.setattr("engine.asyncio.sleep", sleep)
+    with pytest.raises(Stop):
+        await engine._sync_loop()
+    assert seen["expected"] == 5000
+    assert sleeps == [engine_module.CATCH_UP_EVERY]
+    status = (await engine.status())["library"]["sync"]
+    assert status["state"] == "idle" and status["features"]["more"] is True

@@ -10,16 +10,23 @@ pick is a real track in your library.
 1. **Library mirror.** TideSync keeps a local copy of your Music Assistant track
    list, with tempo, key and an energy value for every analysed track.
 2. **Finding candidates.** A vibe is matched against how your tracks *sound*,
-   using Music Assistant's sonic search. A starting song or your recent likes
-   pull in tracks that sound similar. A few tracks you have not heard in a while
-   are mixed in for variety.
+   using Music Assistant's sonic search. That search only knows the tracks in
+   Music Assistant's sound index, which can lag far behind its analysis, so
+   tracks that resemble the best matches, and analysed tracks with a fitting
+   energy, are added too. A starting song or your recent likes pull in tracks
+   that sound similar. A few tracks you have not heard in a while are mixed in
+   for variety.
 3. **Sequencing.** Plain code orders the candidates to follow an energy curve
    and keeps each transition close in tempo and key, with artists spaced out.
 4. **Rolling queue.** It keeps about 8 tracks queued and re-plans on each
    top-up, so skips, likes and energy changes take effect within a song or two.
 
-Only analysed tracks are played. The dashboard's "What the DJ is doing" view
-shows how many of your tracks are analysed so far.
+Only analysed tracks are played. A track counts as analysed as soon as Music
+Assistant has measured its tempo or key, whether or not the sound index has it
+yet. The dashboard's "What the DJ is doing" view shows how many of your tracks
+are ready and how many a vibe can match by sound. With an admin token it also
+shows Music Assistant's own progress, with an estimate of the time left once it
+has watched the nightly analysis for about a day.
 
 ## Requirements in Music Assistant
 
@@ -39,7 +46,7 @@ scan whenever it stops with tracks left.
 | Option | Meaning |
 |---|---|
 | `ma_host`, `ma_port` | Where Music Assistant is reachable. |
-| `ma_token` | Long-lived Music Assistant token (admin user for "Keep analysis running"). |
+| `ma_token` | Long-lived Music Assistant token (admin user for analysis progress and "Keep analysis running"). |
 | `ma_username`, `ma_password` | Alternative to a token. |
 | `anthropic_api_key` | Optional. Lets Claude interpret the vibe. |
 | `claude_model` | Model used when a key is set. |

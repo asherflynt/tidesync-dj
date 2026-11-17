@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from library import Library
+from library import COVERAGE_DOMAINS, Library
 from ma import MAClient, MAError, MAUnavailable
 from plan import SET_LENGTH, ClaudePlanner, Plan, apply_bias, heuristic_plan
 from retrieval import gather
@@ -32,7 +32,16 @@ OPENING = 10  # tracks queued when a session starts
 CANDIDATE_CAP = 400  # best candidates handed to the sequencer
 LISTING_SYNC_EVERY = 6 * 3600
 ANALYSIS_SYNC_EVERY = 30 * 60
+CATCH_UP_EVERY = 90  # next sync pass when the last one was cut short with tracks still turning up
+COVERAGE_RETRY = 6 * 3600  # re-ask for MA's coverage this often after it was refused
 SCAN_TASK_ID = "audio_analysis_background_scan"
+COVERAGE_MESSAGES = {
+    "needs_admin": "Music Assistant only shares its analysis progress with admin users, "
+                   "and TideSync's Music Assistant token is not an admin token.",
+    "not_enabled": "This kind of analysis is not turned on in Music Assistant.",
+    "unsupported": "This Music Assistant version does not report its analysis progress.",
+    "error": "Music Assistant did not report its analysis progress.",
+}
 SKIP_FRACTION = 0.5  # stopped before this share of the track = a skip
 
 
@@ -70,6 +79,22 @@ def track_view(item: dict[str, Any]) -> dict[str, Any]:
         "duration": media.get("duration") or item.get("duration"),
         "item_id": item.get("queue_item_id"),
     }
+
+
+def coarse_duration(seconds: float) -> str:
+    """Plain, deliberately rough wording for a long wait ("about 3 weeks")."""
+    days = seconds / 86400
+    if days < 1:
+        return "less than a day"
+    if days < 1.5:
+        return "about a day"
+    if days < 13:
+        return f"about {round(days)} days"
+    if days < 60:
+        return f"about {round(days / 7)} weeks"
+    if days < 548:
+        return f"about {round(days / 30.4)} months"
+    return f"about {round(days / 365)} years"
 
 
 def _label(item: dict[str, Any] | None) -> str | None:
@@ -112,6 +137,11 @@ class DJEngine:
         self._refill_lock = asyncio.Lock()
         self._tasks: list[asyncio.Task[Any]] = []
         self._sync_status: dict[str, Any] = {"state": "pending"}
+        self._coverage_reading: dict[str, dict[str, Any]] = {}  # this pass's raw MA replies
+        self._coverage_errors: dict[str, str] = {}  # domain -> reason code
+        self._coverage_logged: set[tuple[str, str]] = set()
+        self._coverage_skip_until: dict[str, float] = {}  # domain -> monotonic time to ask again
+        self._ma_index: dict[str, Any] | None = None
         self._last_error: str | None = None
         self._last_feedback: tuple[str, float] = ("", 0.0)
         self._ha_vibe_seen: str | None = None
@@ -151,19 +181,32 @@ class DJEngine:
     # -- background loops ---------------------------------------------------
 
     async def _sync_loop(self) -> None:
-        """Keep the library mirror current; analysis coverage is re-read often because it grows."""
-        last_listing = 0.0
+        """Keep the library mirror current.
+
+        The listing is re-read every few hours and the sound index every half
+        hour. Analysed tracks are looked for every half hour too, or within a
+        couple of minutes while a pass keeps finding more than it had time to
+        check (e.g. after thousands of analysis rows arrived at once).
+        """
+        last_listing = last_index = float("-inf")
         while True:
+            more = False
             try:
                 if time.monotonic() - last_listing > LISTING_SYNC_EVERY or not self._lib.stats()["total"]:
                     self._sync_status = {"state": "listing"}
                     await self._lib.sync_listing(self._ma)
                     last_listing = time.monotonic()
+                if time.monotonic() - last_index >= ANALYSIS_SYNC_EVERY:
+                    self._sync_status = {"state": "sound index"}
+                    await self._lib.sync_analysed(self._ma)
+                    self._ma_index = await self._read_ma_index()
+                    last_index = time.monotonic()
                 self._sync_status = {"state": "analysis"}
-                await self._lib.sync_analysed(self._ma)
-                await self._lib.sync_features(self._ma)
-                await self._keep_scan_running()
-                self._sync_status = {**self._sync_status, "state": "idle",
+                await self._read_coverage()
+                features = await self._lib.sync_features(self._ma, expected=self._expected_analysed())
+                more = bool(features.get("more"))
+                await self._keep_scan_running(self._pending(), read=False)
+                self._sync_status = {**self._sync_status, "state": "idle", "features": features,
                                      "at": datetime.now().isoformat(timespec="seconds")}
             except (MAUnavailable, MAError) as err:
                 self._sync_status = {"state": "error", "error": str(err)}
@@ -171,25 +214,107 @@ class DJEngine:
             except Exception:  # noqa: BLE001 - keep the loop alive
                 _LOGGER.exception("Library sync crashed")
                 self._sync_status = {"state": "error", "error": "unexpected error (see log)"}
-            await asyncio.sleep(ANALYSIS_SYNC_EVERY)
+            await asyncio.sleep(CATCH_UP_EVERY if more else ANALYSIS_SYNC_EVERY)
 
-    async def _keep_scan_running(self) -> None:
+    async def _read_ma_index(self) -> dict[str, Any] | None:
+        """Sizes of MA's two sound indexes (sonic_similarity/status, any user may read it)."""
+        status = await self._ma.try_cmd("sonic_similarity/status")
+        if not isinstance(status, dict):
+            return None
+        clap = status.get("clap_index_size")
+        return {
+            # tracks MA can find similar songs for / return as similar (feature "Traits" index)
+            "similar_index_size": int(status.get("index_size") or 0),
+            # tracks a vibe can match by sound (CLAP "Character" index); None when it is off
+            "sound_index_size": int(clap) if clap is not None else None,
+            "text_search": bool(status.get("text_search_enabled")),
+        }
+
+    async def _read_coverage(self) -> None:
+        """Ask MA how much of the library it has analysed, and keep the reading.
+
+        ``audio_analysis/coverage`` needs an admin token. Without one (or on a
+        server that lacks it, or with that analysis provider turned off) the
+        reason is logged once and the question is asked again only every few
+        hours, so neither log is flooded.
+        """
+        self._coverage_reading = {}
+        for domain in COVERAGE_DOMAINS:
+            if time.monotonic() < self._coverage_skip_until.get(domain, 0.0):
+                continue
+            try:
+                reply = await self._ma.cmd("audio_analysis/coverage", aa_domain=domain)
+            except MAUnavailable as err:
+                self._coverage_failed(domain, "error", str(err))
+                return
+            except MAError as err:
+                if err.not_permitted or err.unsupported:
+                    # the same answer for every domain; ask again later (the token may change)
+                    reason = "needs_admin" if err.not_permitted else "unsupported"
+                    for each in COVERAGE_DOMAINS:
+                        self._coverage_failed(each, reason, err.details, quiet=each != domain)
+                        self._coverage_skip_until[each] = time.monotonic() + COVERAGE_RETRY
+                    return
+                reason = "not_enabled" if "not available" in err.details.lower() else "error"
+                self._coverage_failed(domain, reason, err.details)
+                if reason == "not_enabled":
+                    self._coverage_skip_until[domain] = time.monotonic() + COVERAGE_RETRY
+                continue
+            if not isinstance(reply, dict) or reply.get("analyzed") is None:
+                self._coverage_failed(domain, "error", f"unexpected reply {reply!r:.80}")
+                continue
+            self._coverage_errors.pop(domain, None)
+            self._coverage_logged = {k for k in self._coverage_logged if k[0] != domain}
+            self._coverage_reading[domain] = reply
+            self._lib.record_coverage(domain, int(reply["analyzed"]), int(reply.get("pending") or 0))
+
+    def _coverage_failed(self, domain: str, reason: str, details: str, *, quiet: bool = False) -> None:
+        """Remember why a domain's coverage is missing; log each new reason once."""
+        self._coverage_errors[domain] = reason
+        if (domain, reason) not in self._coverage_logged:
+            self._coverage_logged.add((domain, reason))
+            if not quiet:
+                _LOGGER.info("Music Assistant analysis progress (%s) is not available: %s. %s",
+                             domain, details, COVERAGE_MESSAGES.get(reason, ""))
+
+    def _expected_analysed(self) -> int | None:
+        """MA's count of analysed tracks from this pass, for the feature sync's catch-up check.
+
+        Tempo and key come from Smart Fades, so its count is preferred.
+        """
+        for domain in ("smart_fades", "sonic_analysis"):
+            if domain in self._coverage_reading:
+                return int(self._coverage_reading[domain]["analyzed"])
+        return None
+
+    def _pending(self) -> int | None:
+        pending = [int(r.get("pending") or 0) for r in self._coverage_reading.values()]
+        return max(pending) if pending else None
+
+    async def _keep_scan_running(self, pending: int | None = None, *, read: bool = True) -> None:
         """Restart Music Assistant's analysis scan when it has stopped with work left.
 
         MA runs the scan nightly for a few hours; with this option on, a large library
         is analysed around the clock instead. Needs an admin token; silently skipped otherwise.
+
+        :param pending: tracks MA still has to analyse, from this pass's coverage
+            reading; read here when not given (unless ``read`` is False).
         """
         if not getattr(self._config, "keep_analysis_running", False):
             return
-        coverage = await self._ma.try_cmd("audio_analysis/coverage", aa_domain="sonic_analysis")
-        task = await self._ma.try_cmd("tasks/get", task_id=SCAN_TASK_ID)
-        if not coverage or not task:
+        if pending is None and read:
+            await self._read_coverage()
+            pending = self._pending()
+        if pending is None:
             return
-        self._sync_status["scan"] = {"pending": coverage.get("pending"), "status": task.get("status")}
-        if coverage.get("pending") and task.get("status") not in ("running", "pending"):
+        task = await self._ma.try_cmd("tasks/get", task_id=SCAN_TASK_ID)
+        if not task:
+            return
+        self._sync_status["scan"] = {"pending": pending, "status": task.get("status")}
+        if pending and task.get("status") not in ("running", "pending"):
             started = await self._ma.try_cmd("tasks/run", task_id=SCAN_TASK_ID)
             _LOGGER.info("Analysis scan was %s with %s tracks pending; restarted: %s",
-                         task.get("status"), coverage.get("pending"), bool(started))
+                         task.get("status"), pending, bool(started))
 
     async def _tick_loop(self) -> None:
         interval = max(10, int(getattr(self._config, "dj_tick_interval", 30)))
@@ -359,9 +484,9 @@ class DJEngine:
         player = await self._ensure_player()
         if not player:
             return {"ok": False, "error": "No available player found in Music Assistant."}
-        if not self._lib.stats()["analysed"]:
-            return {"ok": False, "error": "No analysed tracks yet. Music Assistant is still analysing "
-                    "your library; try again once some tracks have been processed."}
+        counts = self._lib.stats()
+        if not counts["analysed"]:
+            return {"ok": False, "error": self._not_ready_message(counts)}
         self._activity = {"phase": "picking"}
         liked, blocked = self._person_ids()
         queue = await self._queue()
@@ -376,14 +501,17 @@ class DJEngine:
         exclude = self._picked_ids | blocked | queued_ids
         if current_id is not None:
             exclude.add(current_id)
+        targets = self._targets(count)
         scores, sources = await gather(self._ma, self._lib, self.plan, seed_ids=seeds,
-                                       liked_ids=liked, exclude_ids=exclude)
+                                       liked_ids=liked, exclude_ids=exclude, targets=targets)
         best = dict(sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[:CANDIDATE_CAP])
         candidates = self._lib.candidates(best)
         previous = self._history(current_id, [] if replace else sorted(queued_ids))
-        targets = self._targets(count)
         picks = sequence(candidates, targets, previous=previous)
         if not picks:
+            if counts["analysed"] < counts["total"]:
+                return {"ok": False, "error": f"Nothing left to play that fits among the "
+                        f"{counts['analysed']:,} songs ready so far. Try a different vibe."}
             return {"ok": False, "error": "Nothing left to play that fits. Try a different vibe."}
         rows = self._lib.rows(int(t.id) for t in picks)
         uris = [rows[int(t.id)]["uri"] for t in picks]
@@ -416,6 +544,48 @@ class DJEngine:
         self.stats["added"] += len(uris)
         self._last_error = None
         return {"ok": True, "decision": decision}
+
+    def _not_ready_message(self, counts: dict[str, int]) -> str:
+        """Why the DJ cannot start yet, in plain words."""
+        total = counts.get("total") or 0
+        songs = f"None of your {total:,} songs are" if total else "No songs are"
+        message = ("Your library is still being prepared: Music Assistant is analysing your songs "
+                   f"so the DJ can read their tempo and energy. {songs} ready yet. The DJ can start "
+                   "as soon as the first ones are done.")
+        eta = self._coverage_view().get("eta_seconds")
+        if eta:
+            message += f" At the current pace the whole library takes {coarse_duration(eta)}."
+        return message
+
+    def _coverage_view(self) -> dict[str, Any]:
+        """Music Assistant's own analysis progress, for /status (see coverage_progress)."""
+        domains = {d: p for d in COVERAGE_DOMAINS if (p := self._lib.coverage_progress(d))}
+        errors = {d: self._coverage_errors[d] for d in COVERAGE_DOMAINS if d in self._coverage_errors}
+        live = {d: p for d, p in domains.items() if d not in errors}
+        out: dict[str, Any] = {
+            "available": bool(live), "reason": None, "message": None, "state": "unknown",
+            "analysed": None, "pending": None, "rate_per_hour": None, "eta_seconds": None,
+            "measured_hours": None, "domains": {d: {**p, "error": errors.get(d)} for d, p in domains.items()},
+        }
+        if not live:
+            if errors:
+                reason = next(iter(errors.values()))
+                out.update(state="unavailable", reason=reason, message=COVERAGE_MESSAGES.get(reason))
+            return out
+        # the domain furthest behind decides when the library is done
+        slowest = max(live.values(), key=lambda p: p["pending"])
+        states = {p["state"] for p in live.values()}
+        state = next(s for s in ("measuring", "stalled", "analysing", "complete") if s in states)
+        etas = [p["eta_seconds"] for p in live.values() if p["eta_seconds"] is not None]
+        out.update(state=state, analysed=slowest["analysed"], pending=slowest["pending"],
+                   rate_per_hour=slowest["rate_per_hour"], measured_hours=slowest["measured_hours"],
+                   eta_seconds=max(etas) if state in ("analysing", "complete") and etas else None)
+        return out
+
+    def _library_view(self) -> dict[str, Any]:
+        """The mirror's counts next to Music Assistant's own (see Library.stats)."""
+        return {**self._lib.stats(), "ma_index": self._ma_index, "ma_coverage": self._coverage_view(),
+                "sync": self._sync_status}
 
     def _history(self, current_id: int | None, queued_ids: list[int]) -> list[Track]:
         """Recent session tracks + what is playing/queued, for transitions and artist spacing."""
@@ -791,7 +961,6 @@ class DJEngine:
         item = queue.get("current_item")
         uri = ((item or {}).get("media_item") or {}).get("uri")
         upcoming = max(int(queue.get("items") or 0) - int(queue.get("current_index") or 0) - 1, 0)
-        lib = self._lib.stats()
         return {
             "configured": True,
             "claude_enabled": self._planner.enabled,
@@ -819,7 +988,7 @@ class DJEngine:
             "session_minutes": round((time.monotonic() - self.session_started) / 60),
             "stats": self.stats,
             "model": self._planner.model if self._planner.enabled else "no AI key — rules only",
-            "library": {**lib, "sync": self._sync_status},
+            "library": self._library_view(),
         }
 
     async def dj_status(self) -> dict[str, Any]:
@@ -830,11 +999,8 @@ class DJEngine:
         current_id = self._lib.id_for_uri(((item or {}).get("media_item") or {}).get("uri"))
         arc = [{**entry, "now_playing": entry["id"] == str(current_id)} for entry in self._arc_log]
         position = self._position % SET_LENGTH if self.plan.arc in ("flat", "wave") else self._position
-        lib = self._lib.stats()
-        plan_note = self.plan.note
-        if lib["total"]:
-            plan_note = (f"{plan_note} Choosing from {lib['analysed']:,} analysed tracks "
-                         f"of {lib['total']:,} in the library.").strip()
+        library = self._library_view()
+        plan_note = f"{self.plan.note} {self._pool_note(library)}".strip()
         return {
             "activity": dict(self._activity),
             "set_plan": {"arc_note": plan_note, "phases": []},
@@ -851,5 +1017,21 @@ class DJEngine:
             "vibe": self.vibe_prompt or None,
             "energy_bias": self._energy_bias,
             "plan": self.plan.as_dict(),
-            "library": {**lib, "sync": self._sync_status},
+            "library": library,
         }
+
+    @staticmethod
+    def _pool_note(lib: dict[str, Any]) -> str:
+        """How much of the library the DJ can pick from, and how much a vibe can match by sound."""
+        total, ready, by_sound = lib["total"], lib["analysed"], lib["in_sound_index"]
+        if not total:
+            return ""
+        if not ready:
+            return f"None of your {total:,} songs are ready yet: Music Assistant is still analysing them."
+        note = f"Choosing from {ready:,} ready songs of {total:,}."
+        if by_sound < ready:
+            note += (f" A vibe can be matched by sound against {by_sound:,} of them so far; "
+                     "the others are chosen by tempo and energy.")
+        if ready < total:
+            note += " The rest of your library is still being prepared."
+        return note

@@ -33,8 +33,19 @@ class MAError(RuntimeError):
 
     @property
     def unsupported(self) -> bool:
-        """True when the server does not know the command (provider off / older MA)."""
-        return "unsupported command" in self.details.lower()
+        """True when the server does not know the command (provider off / older MA).
+
+        Music Assistant 2.10 answers "Invalid command: <name>"; older servers
+        said "unsupported command".
+        """
+        details = self.details.lower()
+        return "unsupported command" in details or "invalid command" in details
+
+    @property
+    def not_permitted(self) -> bool:
+        """True when the token lacks the scope the command needs (e.g. admin-only)."""
+        details = self.details.lower()
+        return ("requires the" in details and "scope" in details) or "authentication required" in details
 
 
 class MAUnavailable(RuntimeError):
