@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0a0d12" />
 <title>TideSync DJ</title>
+<link rel="icon" href="data:," />
 <style>
   :root {
     --bg: #0a0d12;
@@ -224,6 +225,25 @@
   .ctrl-msg:empty { display: none; }
   .np-center { display: flex; flex-direction: column; align-items: center; width: 100%; }
 
+  /* ── "Getting your library ready" card ── */
+  .ready-card { margin-top: 14px; }
+  .ready-card[hidden] { display: none; }
+  .ready-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -6px -8px 6px 0; }
+  .ready-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
+  .ready-count { font-size: 15px; margin: 0 0 8px; }
+  .ready-count b { font-size: 18px; font-weight: 800; }
+  .meter { height: 10px; border-radius: var(--r-full); background: var(--surface3); overflow: hidden; }
+  .meter-fill { height: 100%; width: 0; border-radius: inherit; background: var(--primary); transition: width .4s ease; }
+  .meter-fill.some { min-width: 6px; }
+  .ready-eta { margin: 10px 0 0; font-size: 14px; }
+  .ready-eta:empty { display: none; }
+  .ready-note { margin: 6px 0 0; font-size: 14px; color: var(--muted); }
+  .textbtn {
+    background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; font-weight: 600;
+    min-width: 44px; min-height: 44px; padding: 0 10px; border-radius: var(--r-sm); flex: 0 0 auto;
+  }
+  .textbtn:hover, .textbtn:active { color: var(--text); background: var(--surface2); }
+
   /* ── Track rows (queue + search) ── */
   .tracklist { display: flex; flex-direction: column; gap: 8px; }
   .trackrow {
@@ -397,8 +417,9 @@
     .panel#p-np {
       background: var(--surface); border: 1px solid var(--outline);
       border-radius: var(--r-lg); padding: 16px 18px; box-shadow: var(--e2);
-      justify-content: flex-start; flex: 0 0 auto; min-height: 0; overflow: hidden;
+      justify-content: flex-start; flex: 0 1 auto; min-height: 0; overflow-y: auto;
     }
+    .panel#p-np .ready-card { background: var(--surface2); box-shadow: none; }
     /* Keep the Now Playing card compact on laptop viewports so Search below it
        has plenty of room for results. */
     .panel#p-np .art-wrap {
@@ -414,7 +435,7 @@
     .panel#p-np .volrow { margin-top: 4px; }
     .panel#p-np .pill.vibe { margin-top: 6px; }
     /* Search fills the height left under Now Playing; only its results scroll. */
-    .panel#p-search { flex: 1 1 auto; min-height: 0; }
+    .panel#p-search { flex: 1 1 auto; min-height: 220px; }
     .panel#p-search .card { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     .toast { bottom: 28px; }
   }
@@ -504,6 +525,19 @@
         </div>
         <div class="ctrl-msg" id="likeMsg"></div>
         <span class="pill vibe" id="vibePill">no vibe set</span>
+      </div>
+
+      <div class="card ready-card" id="readyCard" hidden>
+        <div class="ready-head">
+          <h3>Getting your library ready</h3>
+          <button class="textbtn" id="readyHide">Hide</button>
+        </div>
+        <p class="ready-count" id="readyCount"></p>
+        <div class="meter" role="progressbar" aria-label="Songs ready" aria-valuemin="0" aria-valuemax="100" id="readyMeter">
+          <div class="meter-fill" id="readyFill"></div>
+        </div>
+        <p class="ready-eta" id="readyEta"></p>
+        <p class="ready-note" id="readyNote"></p>
       </div>
     </section>
 
@@ -821,8 +855,9 @@
       const lib = s.library || {};
       if (lib.total) {
         document.getElementById("libSummary").textContent =
-          `Library: ${(lib.analysed || 0).toLocaleString()} / ${lib.total.toLocaleString()} tracks sonic-analysed`;
+          `Library: ${(lib.analysed || 0).toLocaleString()} of ${lib.total.toLocaleString()} songs ready to play`;
       }
+      renderReadiness(lib);
       document.getElementById("sessionCount").textContent = s.session_track_count || 0;
       document.getElementById("likeBtn").disabled = !s.can_like;
       document.getElementById("blockBtn").disabled = !s.can_block;
@@ -837,6 +872,70 @@
       setConn(false);
     }
   }
+
+  // ── "Getting your library ready" ──
+  // Music Assistant prepares songs slowly (mostly overnight), so for weeks the
+  // DJ can only pick from part of the library. The card says how much is ready
+  // and, once Music Assistant has been watched for about a day, roughly how long
+  // the rest will take. Hidden for this app session when dismissed.
+  const READY_HIDDEN_KEY = "tidesync.readyHidden";
+  function readyHidden() {
+    try { return sessionStorage.getItem(READY_HIDDEN_KEY) === "1"; } catch (e) { return false; }
+  }
+  // Same rough wording as the add-on's log and error messages ("about 3 weeks").
+  function roughWait(seconds) {
+    const days = seconds / 86400;
+    if (days < 1) return "less than a day";
+    if (days < 1.5) return "about a day";
+    if (days < 13) return `about ${Math.round(days)} days`;
+    if (days < 60) return `about ${Math.round(days / 7)} weeks`;
+    if (days < 548) return `about ${Math.round(days / 30.4)} months`;
+    return `about ${Math.round(days / 365)} years`;
+  }
+  function readinessEta(cov, sync) {
+    let text = "";
+    if (cov.available) {
+      if (cov.state === "analysing" && cov.eta_seconds) {
+        const wait = roughWait(cov.eta_seconds);
+        text = `${wait[0].toUpperCase()}${wait.slice(1)} to go at the current pace.`;
+      } else if (cov.state === "stalled") {
+        text = "Nothing new was finished in the last day. Music Assistant usually works on this overnight.";
+      } else {
+        text = "Still measuring how long the rest will take. Music Assistant does most of this " +
+               "work overnight, so an estimate takes about a day.";
+      }
+    }
+    if (sync && sync.features && sync.features.more) {
+      text = (text ? text + " " : "") + "Newly finished songs are being added now.";
+    }
+    return text;
+  }
+  function renderReadiness(lib) {
+    const card = document.getElementById("readyCard");
+    const total = lib.total || 0;
+    const ready = Math.min(lib.analysed || 0, total);
+    const cov = lib.ma_coverage || {};
+    const done = cov.state === "complete" || (total > 0 && ready >= total);
+    if (!total || done || readyHidden()) { card.hidden = true; return; }
+    card.hidden = false;
+    const pct = (ready / total) * 100;
+    document.getElementById("readyCount").innerHTML =
+      `<b>${ready.toLocaleString()}</b> of ${total.toLocaleString()} songs are ready`;
+    const fill = document.getElementById("readyFill");
+    fill.style.width = pct.toFixed(2) + "%";
+    fill.classList.toggle("some", ready > 0);
+    document.getElementById("readyMeter").setAttribute("aria-valuenow", String(Math.round(pct)));
+    document.getElementById("readyEta").textContent = readinessEta(cov, lib.sync);
+    document.getElementById("readyNote").textContent = ready
+      ? "Music Assistant is still listening through your library to learn each song's tempo and " +
+        "energy. The DJ only picks from songs that are ready, so its choice grows as more are done."
+      : "Music Assistant is still listening through your library to learn each song's tempo and " +
+        "energy. The DJ only picks from songs that are ready, and can start as soon as the first ones are done.";
+  }
+  document.getElementById("readyHide").addEventListener("click", () => {
+    try { sessionStorage.setItem(READY_HIDDEN_KEY, "1"); } catch (e) { /* private mode */ }
+    document.getElementById("readyCard").hidden = true;
+  });
 
   // ── Up Next queue ──
   let queueItems = [];          // upcoming items only, in order
