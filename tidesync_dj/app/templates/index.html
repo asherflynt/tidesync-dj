@@ -28,6 +28,7 @@
     --gap: 14px;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body {
     margin: 0; height: 100%;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -103,7 +104,7 @@
   details.card > summary {
     cursor: pointer; list-style: none; user-select: none;
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 12px 16px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 12px 16px; min-height: 48px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase;
     color: var(--muted); font-weight: 700; transition: color .15s;
   }
   details.card > summary::-webkit-details-marker { display: none; }
@@ -126,19 +127,21 @@
   /* ── Buttons / inputs ── */
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .row.nowrap { flex-wrap: nowrap; }
-  input[type=text], input[type=search], select {
+  /* 16px keeps iOS from zooming the page when a field gets focus. */
+  input[type=text], input[type=search], select, textarea {
     flex: 1; min-width: 0; background: var(--surface2); border: 1px solid var(--outline);
-    color: var(--text); border-radius: var(--r-sm); padding: 10px 12px; font-size: 14px;
+    color: var(--text); border-radius: var(--r-sm); padding: 10px 12px; font-size: 16px;
+    min-height: 44px; font-family: inherit;
   }
   input[type=search] { -webkit-appearance: none; appearance: none; }
-  input[type=text]:focus, input[type=search]:focus, select:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+  input[type=text]:focus, input[type=search]:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
   select { cursor: pointer; }
   .volrow { display: flex; align-items: center; gap: 10px; margin-top: 8px; width: 100%; max-width: 280px; }
-  .volrow input[type=range] { flex: 1; accent-color: var(--primary); cursor: pointer; }
+  .volrow input[type=range] { flex: 1; accent-color: var(--primary); cursor: pointer; height: 44px; margin: 0; }
   .volrow .icon.sm { width: 18px; height: 18px; fill: var(--muted); flex: 0 0 auto; }
   .btn {
     background: var(--primary); color: var(--on-primary); border: 0;
-    border-radius: var(--r-full); padding: 10px 16px; font-size: 13px; font-weight: 700;
+    border-radius: var(--r-full); padding: 10px 16px; font-size: 14px; font-weight: 700; min-height: 44px;
     cursor: pointer; white-space: nowrap; transition: filter .15s, transform .05s;
     display: inline-flex; align-items: center; justify-content: center; gap: 6px; line-height: 1.1;
   }
@@ -181,7 +184,7 @@
   .pill.vibe { color: var(--primary); align-self: center; margin-top: 8px; }
 
   .art-wrap {
-    width: 100%; max-width: 380px; margin: 0 auto 14px; aspect-ratio: 1 / 1;
+    width: 100%; max-width: min(380px, 36vh); margin: 0 auto 14px; aspect-ratio: 1 / 1;
     border-radius: var(--r-lg); overflow: hidden; background: var(--surface2);
     display: flex; align-items: center; justify-content: center;
     box-shadow: var(--e3); flex: 0 0 auto;
@@ -205,7 +208,7 @@
     justify-content: center; cursor: pointer; flex: 0 0 auto;
     transition: background .15s, color .15s, border-color .15s, transform .08s;
   }
-  .ctrl.sm { width: 38px; height: 38px; }
+  .ctrl.sm { width: 44px; height: 44px; }
   .ctrl:active:not(:disabled) { transform: scale(.93); }
   .ctrl:disabled { opacity: .4; cursor: default; }
   .ctrl.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); width: 60px; height: 60px; }
@@ -224,6 +227,28 @@
   .ctrl-msg { text-align: center; color: var(--muted); font-size: 12px; margin-top: 4px; flex: 0 0 auto; }
   .ctrl-msg:empty { display: none; }
   .np-center { display: flex; flex-direction: column; align-items: center; width: 100%; }
+
+  /* ── Now Playing: start screen, speaker row, DJ progress ── */
+  .np-main { display: flex; flex-direction: column; align-items: stretch; min-width: 0; }
+  .np-start { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 24px 4px 4px; }
+  .start-icon { width: 72px; height: 72px; fill: var(--primary); opacity: .9; margin-bottom: 10px; }
+  .start-lead { margin: 0 0 18px; color: var(--muted); font-size: 15px; max-width: 320px; }
+  .btn.big { min-height: 56px; font-size: 18px; padding: 14px 24px; }
+  .np-where { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .where { flex: 1 1 auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .where-label { color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .np-where .btn { flex: 0 0 auto; }
+  .np-msg { text-align: center; }
+  .dj-banner {
+    background: #122433; border: 1px solid #2c5067; border-radius: var(--r-md);
+    padding: 4px 6px 12px 14px; margin-top: 12px;
+  }
+  .dj-banner-row { display: flex; align-items: center; gap: 2px; }
+  .dj-banner-label { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; }
+  .dj-banner .textbtn { color: #9ad0f0; }
+  .dj-banner .dj-bar { margin-right: 8px; }
+  .np-more { margin-top: 12px; }
+  .banner.info#maBanner { margin: 4px 0 8px; }
 
   /* ── "Getting your library ready" card ── */
   .ready-card { margin-top: 14px; }
@@ -262,7 +287,7 @@
   .trackinfo .a { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rowbtn {
     background: none; border: 0; color: var(--muted); cursor: pointer;
-    min-width: 38px; min-height: 38px; padding: 6px;
+    min-width: 44px; min-height: 44px; padding: 6px;
     border-radius: 8px; display: flex; align-items: center; justify-content: center;
     transition: color .15s, background .15s; flex: 0 0 auto;
   }
@@ -273,7 +298,7 @@
      dragging it never scrolls the list. */
   .drag-handle {
     color: var(--muted); cursor: grab; touch-action: none;
-    min-width: 34px; min-height: 38px; padding: 6px 4px;
+    min-width: 44px; min-height: 44px; padding: 6px 4px;
     display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
   }
   .drag-handle:active { cursor: grabbing; color: var(--text); }
@@ -294,14 +319,14 @@
   #peopleBtns { display: inline-flex; gap: 6px; flex-wrap: wrap; }
   .person {
     background: var(--surface2); color: var(--text); border: 1px solid var(--outline);
-    border-radius: var(--r-full); padding: 8px 14px; min-height: 36px; font-size: 13px;
+    border-radius: var(--r-full); padding: 8px 16px; min-height: 44px; font-size: 15px;
     font-weight: 600; cursor: pointer; transition: all .15s; line-height: 1;
   }
   .person:hover, .person:active { background: var(--surface3); }
   .person.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
   .person-add {
     background: var(--surface2); color: var(--muted); border: 1px solid var(--outline);
-    border-radius: var(--r-full); width: 36px; height: 36px; font-size: 16px; cursor: pointer;
+    border-radius: var(--r-full); width: 44px; height: 44px; font-size: 18px; cursor: pointer;
     display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
   }
   .person-add:hover, .person-add:active { color: var(--text); background: var(--surface3); }
@@ -353,7 +378,8 @@
   .dj-modal-head h2 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
   .dj-close {
     background: none; border: none; color: var(--muted); cursor: pointer;
-    padding: 6px; border-radius: var(--r-sm); display: flex; line-height: 0;
+    width: 44px; height: 44px; border-radius: var(--r-sm); display: flex; line-height: 0;
+    align-items: center; justify-content: center; flex: 0 0 auto;
   }
   .dj-close:hover { color: var(--text); background: var(--surface2); }
   .dj-modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 20px; }
@@ -414,12 +440,13 @@
     #g-right { overflow-y: auto; }
     #g-left > .panel, #g-right > .panel { margin-bottom: var(--gap); }
     #g-left > .panel:last-child, #g-right > .panel:last-child { margin-bottom: 0; }
-    .panel#p-np {
+    .panel#p-np { justify-content: flex-start; flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+    .np-main {
       background: var(--surface); border: 1px solid var(--outline);
       border-radius: var(--r-lg); padding: 16px 18px; box-shadow: var(--e2);
-      justify-content: flex-start; flex: 0 1 auto; min-height: 0; overflow-y: auto;
     }
-    .panel#p-np .ready-card { background: var(--surface2); box-shadow: none; }
+    .np-start { padding-top: 12px; }
+    .phone-only { display: none !important; }
     /* Keep the Now Playing card compact on laptop viewports so Search below it
        has plenty of room for results. */
     .panel#p-np .art-wrap {
@@ -486,45 +513,79 @@
 
     <!-- ════ NOW PLAYING ════ -->
     <section class="panel active" id="p-np" data-panel="np">
-      <div class="np-header">
-        <h1><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5,10.37C15.54,10.37 16.38,9.53 16.38,8.5C16.38,7.46 15.54,6.63 14.5,6.63C13.46,6.63 12.63,7.46 12.63,8.5A1.87,1.87 0 0,0 14.5,10.37M14.5,1A7.5,7.5 0 0,1 22,8.5C22,10.67 21.08,12.63 19.6,14H9.4C7.93,12.63 7,10.67 7,8.5C7,4.35 10.36,1 14.5,1M6,21V22H4V21H2V15H22V21H20V22H18V21H6M4,18V19H13V18H4M15,17V19H17V17H15M19,17A1,1 0 0,0 18,18A1,1 0 0,0 19,19A1,1 0 0,0 20,18A1,1 0 0,0 19,17Z"/></svg> TideSync DJ</h1>
-        <span class="header-status">
-          <span class="pill status"><span class="dot connecting" id="conn"></span><span class="conn-text connecting" id="connText">Connecting…</span></span>
-          <span class="pill model" id="model"></span>
-        </span>
+      <div class="np-main">
+        <div class="np-header">
+          <h1><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5,10.37C15.54,10.37 16.38,9.53 16.38,8.5C16.38,7.46 15.54,6.63 14.5,6.63C13.46,6.63 12.63,7.46 12.63,8.5A1.87,1.87 0 0,0 14.5,10.37M14.5,1A7.5,7.5 0 0,1 22,8.5C22,10.67 21.08,12.63 19.6,14H9.4C7.93,12.63 7,10.67 7,8.5C7,4.35 10.36,1 14.5,1M6,21V22H4V21H2V15H22V21H20V22H18V21H6M4,18V19H13V18H4M15,17V19H17V17H15M19,17A1,1 0 0,0 18,18A1,1 0 0,0 19,19A1,1 0 0,0 20,18A1,1 0 0,0 19,17Z"/></svg> TideSync DJ</h1>
+          <span class="header-status">
+            <span class="pill status"><span class="dot connecting" id="conn"></span><span class="conn-text connecting" id="connText">Connecting…</span></span>
+            <span class="pill model" id="model"></span>
+          </span>
+        </div>
+
+        <div class="banner info" id="maBanner">
+          <b>Waiting for Music Assistant.</b> Not connected to
+          <span id="maHost"></span> yet. <span id="maErr"></span>
+        </div>
+
+        <!-- Stopped: one big Start button -->
+        <div class="np-start" id="npStart">
+          <svg class="start-icon" aria-hidden="true"><use href="#i-disc"/></svg>
+          <p class="start-lead">Music from your own library, chosen and ordered by the DJ.</p>
+          <button class="btn big block" id="startRadio"><svg class="icon"><use href="#i-play"/></svg> Start the music</button>
+        </div>
+
+        <div class="np-center" id="npPlaying" hidden>
+          <div class="art-wrap">
+            <img class="album-art" id="albumArt" alt="Album art" />
+            <span class="art-placeholder" id="albumPlaceholder">♫</span>
+          </div>
+          <div class="track-title" id="nowPlaying">—</div>
+          <div class="track-meta" id="meta"></div>
+
+          <div class="controls">
+            <button class="ctrl" id="prevBtn" title="Previous track">
+              <svg class="icon"><use href="#i-prev"/></svg>
+            </button>
+            <button class="ctrl" id="pauseBtn" title="Pause / Resume">
+              <svg class="icon"><use id="pauseIcon" href="#i-pause"/></svg>
+            </button>
+            <button class="ctrl primary" id="skipBtn" title="Skip track">
+              <svg class="icon"><use href="#i-skip"/></svg>
+            </button>
+            <button class="ctrl like" id="likeBtn" disabled title="Like track">
+              <svg class="icon"><use href="#i-heart-outline"/></svg>
+            </button>
+            <button class="ctrl block" id="blockBtn" disabled title="Block this song">
+              <svg class="icon"><use href="#i-block"/></svg>
+            </button>
+          </div>
+          <div class="volrow">
+            <svg class="icon sm" aria-hidden="true"><use href="#i-volume"/></svg>
+            <input type="range" id="volume" min="0" max="100" value="50" aria-label="Volume" />
+          </div>
+          <div class="ctrl-msg" id="likeMsg"></div>
+          <span class="pill vibe" id="vibePill">no vibe set</span>
+        </div>
+
+        <div class="np-where">
+          <label class="where">
+            <span class="where-label">Playing in</span>
+            <select id="playerSelectNp" class="player-select">
+              <option value="">Loading speakers…</option>
+            </select>
+          </label>
+          <button class="btn danger" id="stopBtn" hidden><svg class="icon sm"><use href="#i-stop"/></svg> Stop</button>
+        </div>
+        <p class="hint block np-msg" id="playbackMsg"></p>
       </div>
 
-      <div class="np-center">
-        <div class="art-wrap">
-          <img class="album-art" id="albumArt" alt="Album art" />
-          <span class="art-placeholder" id="albumPlaceholder">♫</span>
+      <div class="dj-banner" id="djBanner" role="status" hidden>
+        <div class="dj-banner-row">
+          <span class="dj-banner-label" id="djBannerLabel">Choosing songs…</span>
+          <button class="textbtn" id="djBannerMore">Details</button>
+          <button class="textbtn" id="djBannerHide">Hide</button>
         </div>
-        <div class="track-title" id="nowPlaying">—</div>
-        <div class="track-meta" id="meta"></div>
-
-        <div class="controls">
-          <button class="ctrl" id="prevBtn" title="Previous track">
-            <svg class="icon"><use href="#i-prev"/></svg>
-          </button>
-          <button class="ctrl" id="pauseBtn" title="Pause / Resume">
-            <svg class="icon"><use id="pauseIcon" href="#i-pause"/></svg>
-          </button>
-          <button class="ctrl primary" id="skipBtn" title="Skip track">
-            <svg class="icon"><use href="#i-skip"/></svg>
-          </button>
-          <button class="ctrl like" id="likeBtn" disabled title="Like track">
-            <svg class="icon"><use href="#i-heart-outline"/></svg>
-          </button>
-          <button class="ctrl block" id="blockBtn" disabled title="Block this song">
-            <svg class="icon"><use href="#i-block"/></svg>
-          </button>
-        </div>
-        <div class="volrow">
-          <svg class="icon sm" aria-hidden="true"><use href="#i-volume"/></svg>
-          <input type="range" id="volume" min="0" max="100" value="50" aria-label="Volume" />
-        </div>
-        <div class="ctrl-msg" id="likeMsg"></div>
-        <span class="pill vibe" id="vibePill">no vibe set</span>
+        <div class="dj-bar indeterminate" id="djBannerBar"><div class="dj-bar-fill" id="djBannerFill"></div></div>
       </div>
 
       <div class="card ready-card" id="readyCard" hidden>
@@ -539,6 +600,8 @@
         <p class="ready-eta" id="readyEta"></p>
         <p class="ready-note" id="readyNote"></p>
       </div>
+
+      <button class="btn ghost block np-more" id="djStatusBtn"><svg class="icon sm"><use href="#i-radio"/></svg> What's the DJ doing?</button>
     </section>
 
       <!-- ════ SEARCH ════ -->
@@ -572,31 +635,14 @@
         <section class="panel" id="p-settings" data-panel="settings">
           <div class="panel-title">Settings</div>
 
-          <div class="banner warn" id="setupBanner">
-            <b>Setup needed.</b> No Anthropic API key is configured. Open this add-on's
-            <b>Configuration</b> tab in Home Assistant, paste your <code>sk-ant-…</code> key,
-            click <b>Save</b>, then restart.
-          </div>
-          <div class="banner info" id="maBanner">
-            <b>Waiting for Music Assistant.</b> Not connected to
-            <span id="maHost"></span> yet. <span id="maErr"></span>
-          </div>
-
-          <div class="card">
-            <h2>Playback</h2>
+          <div class="card phone-only">
+            <h2>Speaker</h2>
             <div class="row">
-              <select id="playerSelect" aria-label="Music Assistant player">
-                <option value="">Loading players…</option>
+              <select id="playerSelect" aria-label="Speaker">
+                <option value="">Loading speakers…</option>
               </select>
             </div>
-            <div class="row" style="margin-top:8px">
-              <button class="btn grow" id="startRadio"><svg class="icon sm"><use href="#i-play"/></svg> Start Radio</button>
-              <button class="btn danger grow" id="stopBtn" title="Stop playback, clear the queue, and pause the DJ"><svg class="icon sm"><use href="#i-stop"/></svg> Stop</button>
-            </div>
-            <div class="row" style="margin-top:8px">
-              <button class="btn ghost block" id="djStatusBtn" title="See what the DJ is doing behind the scenes"><svg class="icon sm"><use href="#i-radio"/></svg> What's the DJ doing?</button>
-            </div>
-            <small id="playbackMsg" class="hint block"></small>
+            <small class="hint block">Choosing another speaker while music is playing moves the music there.</small>
           </div>
 
           <div class="card">
@@ -818,18 +864,23 @@
       const s = await getJSON("/status");
       setConn(!!s.ma_connected);
 
-      document.getElementById("setupBanner").classList.toggle("show", s.configured === false);
       document.getElementById("maHost").textContent = s.ma_host || "the configured host";
       document.getElementById("maErr").textContent = s.ma_error
         ? s.ma_error
         : "Confirm the host/port and Music Assistant login in the Configuration tab.";
-      document.getElementById("maBanner").classList.toggle(
-        "show", s.configured !== false && !s.ma_connected);
+      document.getElementById("maBanner").classList.toggle("show", !s.ma_connected);
 
+      // Stopped: one big Start button. Running: the player, plus Stop.
+      const running = !s.dj_stopped;
+      document.getElementById("npStart").hidden = running;
+      document.getElementById("npPlaying").hidden = !running;
+      document.getElementById("stopBtn").hidden = !running;
       document.getElementById("nowPlaying").textContent =
-        s.dj_stopped ? "Stopped" : (s.now_playing || "—");
+        s.now_playing || (djSessionActive ? "Getting the first songs ready…" : "Nothing playing right now");
+      const upNext = s.items_remaining || 0;
+      const mins = s.session_minutes || 0;
       document.getElementById("meta").textContent =
-        `${s.time_of_day} · ${s.items_remaining} in queue · ${s.session_minutes} min`;
+        `${upNext} song${upNext === 1 ? "" : "s"} up next` + (mins ? ` · playing for ${mins} min` : "");
 
       const art = document.getElementById("albumArt");
       const placeholder = document.getElementById("albumPlaceholder");
@@ -1110,6 +1161,7 @@
     if (btn.dataset.act === "radio") {
       btn.disabled = true;
       toast("Starting radio…");
+      beginDjRun();
       const r = await postJSON("/start_radio_seed", { uri, label: row.dataset.label });
       if (r.ok) {
         toast("Radio started");
@@ -1224,6 +1276,7 @@
     const v = document.getElementById("vibeInput").value.trim();
     if (!v) return;
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Rebuilding…";
+    beginDjRun();
     try {
       await postJSON("/vibe", { prompt: v });
       document.getElementById("vibeInput").value = "";
@@ -1231,10 +1284,12 @@
   });
   document.getElementById("nudge").addEventListener("click", async (e) => {
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Rebuilding…";
+    beginDjRun();
     try { await postJSON("/nudge"); } finally { btn.disabled = false; btn.textContent = "Nudge DJ"; refreshStatus(); refreshLog(); refreshQueue(); }
   });
   async function nudgeEnergy(direction, btn) {
     btn.disabled = true;
+    beginDjRun();
     try { await postJSON("/energy", { direction }); }
     finally { btn.disabled = false; refreshStatus(); refreshLog(); refreshQueue(); }
   }
@@ -1281,60 +1336,59 @@
   });
 
   // ── Players / radio ──
+  const playerSelects = ["playerSelectNp", "playerSelect"].map(id => document.getElementById(id));
   async function refreshPlayers() {
     try {
       const { players } = await getJSON("/players");
-      const sel = document.getElementById("playerSelect");
-      const current = sel.value;
       if (!players.length) return;
-      sel.innerHTML = players.map(p =>
+      const html = players.map(p =>
         `<option value="${esc(p.player_id)}">${esc(p.name || p.player_id)}</option>`).join("");
       const selected = players.find(p => p.selected);
-      sel.value = selected ? selected.player_id : (current || players[0].player_id);
+      for (const sel of playerSelects) {
+        if (document.activeElement === sel) continue;   // don't yank a list the user has open
+        const current = sel.value;
+        sel.innerHTML = html;
+        sel.value = selected ? selected.player_id : (current || players[0].player_id);
+      }
     } catch (e) { /* MA not connected yet */ }
   }
-  document.getElementById("playerSelect").addEventListener("change", async (e) => {
-    if (!e.target.value) return;
-    const r = await postJSON("/players/select", { player_id: e.target.value });
-    if (r && (r.moved || (r.transferred && r.transferred !== false))) toast("Moved playback to this player");
-    refreshStatus(); refreshQueue();
-  });
+  for (const sel of playerSelects) {
+    sel.addEventListener("change", async (e) => {
+      if (!e.target.value) return;
+      for (const other of playerSelects) other.value = e.target.value;
+      const r = await postJSON("/players/select", { player_id: e.target.value });
+      if (r && r.moved) toast("Moved the music to " + e.target.selectedOptions[0].textContent);
+      refreshStatus(); refreshQueue();
+    });
+  }
+  const START_HTML = '<svg class="icon"><use href="#i-play"/></svg> Start the music';
   document.getElementById("startRadio").addEventListener("click", async (e) => {
-    const sel = document.getElementById("playerSelect");
+    const sel = document.getElementById("playerSelectNp");
     const msg = document.getElementById("playbackMsg");
     const btn = e.currentTarget;
-    if (sel.value) await postJSON("/players/select", { player_id: sel.value });
     btn.disabled = true; btn.textContent = "Starting…";
-    msg.textContent = "Choosing the opening tracks from your library…";
-    openDjModal();   // surface live progress so there's no urge to click again
+    msg.textContent = "";
+    beginDjRun();
     try {
+      if (sel.value) await postJSON("/players/select", { player_id: sel.value });
       const r = await postJSON("/start_radio");
-      if (r.busy) {
-        toast("A session is already starting…");
-        msg.textContent = "A session is already starting — hang tight.";
-      } else {
-        msg.textContent = r.ok
-          ? `Started — ${(r.decision && r.decision.enqueued) || 0} tracks queued.`
-          : `Couldn't start: ${r.error || "unknown error"}`;
-      }
-    } catch (err) { msg.textContent = "Start radio failed."; }
-    finally {
-      btn.disabled = false; btn.innerHTML = '<svg class="icon sm"><use href="#i-play"/></svg> Start Radio';
-      refreshStatus(); refreshLog(); refreshQueue(); refreshDjStatus(false);
+      if (r.busy) msg.textContent = "The DJ is already starting. Hang tight.";
+      else if (!r.ok) msg.textContent = r.error || "Couldn't start the music.";
+    } finally {
+      btn.disabled = false; btn.innerHTML = START_HTML;
+      refreshStatus(); refreshLog(); refreshQueue(); refreshDjStatus();
     }
   });
+  const STOP_HTML = '<svg class="icon sm"><use href="#i-stop"/></svg> Stop';
   document.getElementById("stopBtn").addEventListener("click", async (e) => {
     const btn = e.currentTarget;
     const msg = document.getElementById("playbackMsg");
-    btn.disabled = true; btn.innerHTML = '<svg class="icon sm"><use href="#i-stop"/></svg> Stopping…';
+    btn.disabled = true; btn.textContent = "Stopping…";
     try {
       const r = await postJSON("/stop");
-      msg.textContent = r.ok
-        ? "Stopped — queue cleared. Press Start Radio to resume."
-        : `Couldn't stop: ${r.error || "unknown error"}`;
-    } catch (err) { msg.textContent = "Stop failed."; }
-    finally {
-      btn.disabled = false; btn.innerHTML = '<svg class="icon sm"><use href="#i-stop"/></svg> Stop';
+      msg.textContent = r.ok ? "" : `Couldn't stop: ${r.error || "unknown error"}`;
+    } finally {
+      btn.disabled = false; btn.innerHTML = STOP_HTML;
       refreshStatus(); refreshQueue();
     }
   });
@@ -1370,36 +1424,52 @@
   const startRadioBtn = document.getElementById("startRadio");
   let djModalOpen = false;
   let djSessionActive = false;   // a start-up phase (planning/picking/enqueuing) is live
+  // The progress banner on Now Playing can be hidden; it stays hidden for
+  // background top-ups until the next thing the listener starts from here.
+  let djBannerHidden = false;
+  let djWatchUntil = 0;   // poll fast for a while after the listener starts something
+  function beginDjRun() { djBannerHidden = false; djWatchUntil = Date.now() + 20000; refreshDjStatus(); }
+  document.getElementById("djBannerHide").addEventListener("click", () => {
+    djBannerHidden = true;
+    document.getElementById("djBanner").hidden = true;
+  });
+  document.getElementById("djBannerMore").addEventListener("click", () => openDjModal());
 
-  function openDjModal() { djOverlay.classList.add("show"); djModalOpen = true; refreshDjStatus(false); }
+  function openDjModal() { djOverlay.classList.add("show"); djModalOpen = true; refreshDjStatus(); }
   function closeDjModal() { djOverlay.classList.remove("show"); djModalOpen = false; }
   document.getElementById("djStatusBtn").addEventListener("click", openDjModal);
   document.getElementById("djClose").addEventListener("click", closeDjModal);
   djOverlay.addEventListener("click", (e) => { if (e.target === djOverlay) closeDjModal(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && djModalOpen) closeDjModal(); });
 
-  const PHASE_LABEL = { planning: "Planning the set…", picking: "Choosing tracks…", enqueuing: "Queueing tracks" };
+  const PHASE_LABEL = { planning: "Reading the vibe…", picking: "Choosing songs…", enqueuing: "Adding songs to Up Next…" };
 
-  function renderDjLoading(activity) {
-    const wrap = document.getElementById("djLoading");
-    const bar = document.getElementById("djBar");
-    const fill = document.getElementById("djBarFill");
-    const label = document.getElementById("djLoadingLabel");
-    const phase = (activity && activity.phase) || "idle";
-    djSessionActive = phase === "planning" || phase === "picking" || phase === "enqueuing";
-    wrap.classList.toggle("show", djSessionActive);
-    startRadioBtn.disabled = djSessionActive;
-    if (!djSessionActive) return;
+  // One progress bar in the modal and one in the Now Playing banner.
+  function paintDjBar(bar, fill, label, activity) {
+    const phase = activity.phase;
     if (phase === "enqueuing" && activity.target) {
       const n = Math.min(activity.enqueued || 0, activity.target);
       bar.classList.remove("indeterminate");
       fill.style.width = Math.round((n / activity.target) * 100) + "%";
-      label.textContent = `Queueing tracks — ${n}/${activity.target}`;
+      label.textContent = PHASE_LABEL.enqueuing;
     } else {
       bar.classList.add("indeterminate");
       fill.style.width = "";
       label.textContent = PHASE_LABEL[phase] || "Working…";
     }
+  }
+  function renderDjLoading(activity) {
+    activity = activity || {};
+    const phase = activity.phase || "idle";
+    djSessionActive = phase === "planning" || phase === "picking" || phase === "enqueuing";
+    document.getElementById("djLoading").classList.toggle("show", djSessionActive);
+    document.getElementById("djBanner").hidden = !djSessionActive || djBannerHidden;
+    startRadioBtn.disabled = djSessionActive;
+    if (!djSessionActive) return;
+    paintDjBar(document.getElementById("djBar"), document.getElementById("djBarFill"),
+               document.getElementById("djLoadingLabel"), activity);
+    paintDjBar(document.getElementById("djBannerBar"), document.getElementById("djBannerFill"),
+               document.getElementById("djBannerLabel"), activity);
   }
 
   function djSparkline(arc) {
@@ -1474,7 +1544,7 @@
   }
 
   let djInFlight = false;
-  async function refreshDjStatus(autoOpen) {
+  async function refreshDjStatus() {
     if (djInFlight) return;
     djInFlight = true;
     try {
@@ -1482,7 +1552,6 @@
       renderDjLoading(s.activity);
       renderDjArc(s.set_plan, s.arc_position, s.energy_arc);
       renderDjReason(s.latest_decision);
-      if (autoOpen && djSessionActive && !djModalOpen) { djOverlay.classList.add("show"); djModalOpen = true; }
     } catch (e) {
       // keep the last render on a transient error
     } finally { djInFlight = false; }
@@ -1498,13 +1567,15 @@
   setInterval(whenVisible(refreshQueue), 5000);
   setInterval(whenVisible(refreshLog), 8000);
   setInterval(whenVisible(refreshPlayers), 15000);
-  // DJ status: slow poll always (auto-opens the modal when a session starts —
-  // incl. background top-ups); fast poll while the modal is open or a session
-  // is starting so the loading bar and arc move in near-real-time.
-  setInterval(whenVisible(() => refreshDjStatus(!djModalOpen)), 4000);
-  setInterval(whenVisible(() => { if (djModalOpen || djSessionActive) refreshDjStatus(false); }), 1500);
+  // DJ status: slow poll always (drives the progress banner on Now Playing);
+  // fast poll while the modal is open or the DJ is busy so the bars move.
+  refreshDjStatus();
+  setInterval(whenVisible(refreshDjStatus), 4000);
+  setInterval(whenVisible(() => {
+    if (djModalOpen || djSessionActive || Date.now() < djWatchUntil) refreshDjStatus();
+  }), 1500);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) { refreshStatus(); refreshQueue(); refreshLog(); refreshPlayers(); refreshDjStatus(!djModalOpen); }
+    if (!document.hidden) { refreshStatus(); refreshQueue(); refreshLog(); refreshPlayers(); refreshDjStatus(); }
   });
 </script>
 </body>
