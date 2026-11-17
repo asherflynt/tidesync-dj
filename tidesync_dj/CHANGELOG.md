@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.1
+
+### Fixed
+
+- **Laptop & 3-column layout.** Replaced fixed pixel max-widths on the first two
+  columns with proportional `fr` tracks so the third column (Settings) is no
+  longer crushed into a narrow strip on laptop screens.
+- **Compact Settings panel with collapsible sections.** Playback, Set Vibe and
+  Listening stay visible above the fold with side-by-side controls, while
+  Session Stats, DJ Decision Log and Advanced are collapsed by default with live
+  summary badges.
+- **Now Playing sizing.** Tightened the Now Playing card on laptop viewports so
+  the Search panel below it has room for results, and fixed volume slider width
+  and header wrapping.
+
 ## 2.0.0
 
 A rewrite for local libraries. Settings from 1.x still load; likes, blocks and
