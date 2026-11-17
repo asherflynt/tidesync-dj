@@ -65,7 +65,7 @@
   .panel::-webkit-scrollbar-track { background: transparent; }
 
   .panel-title {
-    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    font-size: 13px; letter-spacing: .1em; text-transform: uppercase;
     color: var(--muted); margin: 2px 2px 10px; font-weight: 700;
   }
 
@@ -78,7 +78,7 @@
   .navbtn {
     flex: 1; background: none; border: 0; color: var(--muted);
     display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 9px 0 8px; font-size: 11px; font-weight: 600; cursor: pointer;
+    padding: 9px 0 8px; font-size: 13px; font-weight: 600; cursor: pointer;
     transition: color .15s; position: relative;
   }
   .navbtn.active { color: var(--primary); }
@@ -95,7 +95,7 @@
   }
   .card:last-child { margin-bottom: 0; }
   .card h2 {
-    font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    font-size: 13px; letter-spacing: .08em; text-transform: uppercase;
     color: var(--muted); margin: 0 0 10px; font-weight: 700;
   }
 
@@ -110,7 +110,7 @@
   details.card > summary::-webkit-details-marker { display: none; }
   details.card > summary:hover { color: var(--text); }
   details.card > summary::after {
-    content: "▸"; font-size: 13px; color: var(--muted);
+    content: "▸"; font-size: 14px; color: var(--muted);
     transition: transform .15s ease; flex: 0 0 auto;
   }
   details.card[open] > summary {
@@ -118,7 +118,7 @@
   }
   details.card[open] > summary::after { transform: rotate(90deg); }
   .summary-meta {
-    margin-left: auto; font-size: 11px; font-weight: 500;
+    margin-left: auto; font-size: 13px; font-weight: 500;
     letter-spacing: 0; text-transform: none; color: var(--muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
@@ -134,6 +134,7 @@
     min-height: 44px; font-family: inherit;
   }
   input[type=search] { -webkit-appearance: none; appearance: none; }
+  input[type=search]::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }  /* we draw our own */
   input[type=text]:focus, input[type=search]:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
   select { cursor: pointer; }
   .volrow { display: flex; align-items: center; gap: 10px; margin-top: 8px; width: 100%; max-width: 280px; }
@@ -153,7 +154,7 @@
   .btn.danger:hover:not(:disabled) { filter: none; border-color: var(--danger); }
   .btn.block { width: 100%; justify-content: center; }
   .btn.grow { flex: 1 1 0; }
-  .hint { color: var(--muted); font-size: 12px; }
+  .hint { color: var(--muted); font-size: 14px; }
   .hint.block { display: block; margin-top: 8px; }
   .hint.block:empty { display: none; }
 
@@ -170,21 +171,20 @@
   .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   .dot.connecting { background: var(--warn); box-shadow: 0 0 8px var(--warn);
     animation: pulse 1.1s ease-in-out infinite; }
-  .conn-text { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .conn-text { font-size: 13px; color: var(--muted); white-space: nowrap; }
   .conn-text.on { color: var(--ok); } .conn-text.connecting { color: var(--warn); }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
   .pill {
     display: inline-block; background: var(--surface2); border: 1px solid var(--outline);
-    border-radius: var(--r-full); padding: 3px 10px; color: var(--muted); font-size: 11px;
+    border-radius: var(--r-full); padding: 4px 12px; color: var(--muted); font-size: 13px;
   }
-  /* Status + model grouped together on the far right, styled the same. */
+  /* Connection status on the far right. */
   .header-status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
   .pill.status { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
-  .pill.model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
   .pill.vibe { color: var(--primary); align-self: center; margin-top: 8px; }
 
   .art-wrap {
-    width: 100%; max-width: min(380px, 36vh); margin: 0 auto 14px; aspect-ratio: 1 / 1;
+    width: 100%; max-width: min(380px, 32vh); margin: 0 auto 14px; aspect-ratio: 1 / 1;
     border-radius: var(--r-lg); overflow: hidden; background: var(--surface2);
     display: flex; align-items: center; justify-content: center;
     box-shadow: var(--e3); flex: 0 0 auto;
@@ -198,7 +198,7 @@
     margin: 0 0 4px; flex: 0 0 auto; width: 100%;
     overflow: hidden; text-overflow: ellipsis;
   }
-  .track-meta { color: var(--muted); font-size: 12px; text-align: center; margin-bottom: 14px; flex: 0 0 auto; }
+  .track-meta { color: var(--muted); font-size: 14px; text-align: center; margin-bottom: 14px; flex: 0 0 auto; }
 
   .controls { display: flex; gap: 10px; align-items: center; justify-content: center;
     margin-bottom: 10px; flex: 0 0 auto; }
@@ -208,7 +208,6 @@
     justify-content: center; cursor: pointer; flex: 0 0 auto;
     transition: background .15s, color .15s, border-color .15s, transform .08s;
   }
-  .ctrl.sm { width: 44px; height: 44px; }
   .ctrl:active:not(:disabled) { transform: scale(.93); }
   .ctrl:disabled { opacity: .4; cursor: default; }
   .ctrl.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); width: 60px; height: 60px; }
@@ -224,8 +223,6 @@
     .ctrl.like:hover:not(:disabled) { color: var(--secondary); border-color: var(--secondary); }
     .ctrl.block:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
   }
-  .ctrl-msg { text-align: center; color: var(--muted); font-size: 12px; margin-top: 4px; flex: 0 0 auto; }
-  .ctrl-msg:empty { display: none; }
   .np-center { display: flex; flex-direction: column; align-items: center; width: 100%; }
 
   /* ── Now Playing: start screen, speaker row, DJ progress ── */
@@ -241,17 +238,39 @@
   .np-msg { text-align: center; }
   .dj-banner {
     background: #122433; border: 1px solid #2c5067; border-radius: var(--r-md);
-    padding: 4px 6px 12px 14px; margin-top: 12px;
+    padding: 4px 6px 12px 14px; margin: 0 0 12px;
   }
   .dj-banner-row { display: flex; align-items: center; gap: 2px; }
   .dj-banner-label { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; }
   .dj-banner .textbtn { color: #9ad0f0; }
   .dj-banner .dj-bar { margin-right: 8px; }
-  .np-more { margin-top: 12px; }
+  .np-more { margin-top: 0; }
   .banner.info#maBanner { margin: 4px 0 8px; }
 
+  /* ── Vibe chips, energy, listeners ── */
+  .chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .vibe-chip {
+    background: var(--surface2); color: var(--text); border: 1px solid var(--outline);
+    border-radius: var(--r-full); min-height: 44px; padding: 8px 10px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background .15s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .vibe-chip:hover, .vibe-chip:active { background: var(--surface3); }
+  .vibe-chip.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .vibe-chip:disabled { opacity: .6; cursor: default; }
+  .vibe-own, .energy-row { margin-top: 10px; }
+  #nudge { margin-top: 8px; }
+  #p-np:not(.is-playing) .playing-only { display: none; }
+  /* Order on Now Playing: library readiness near the top while stopped, lower once music plays. */
+  .np-main { order: 0; margin-bottom: 14px; }
+  #djBanner { order: 1; }
+  #readyCard { order: 2; }
+  #vibeCard { order: 3; }
+  #peopleCard { order: 4; }
+  #p-np.is-playing #readyCard { order: 5; }
+  #djStatusBtn { order: 6; }
+
   /* ── "Getting your library ready" card ── */
-  .ready-card { margin-top: 14px; }
+  .ready-card { margin-top: 0; }
   .ready-card[hidden] { display: none; }
   .ready-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -6px -8px 6px 0; }
   .ready-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
@@ -283,8 +302,8 @@
   }
   .thumb.ph { display: flex; align-items: center; justify-content: center; color: var(--outline); font-size: 20px; }
   .trackinfo { flex: 1; min-width: 0; }
-  .trackinfo .t { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .trackinfo .a { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trackinfo .t { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trackinfo .a { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rowbtn {
     background: none; border: 0; color: var(--muted); cursor: pointer;
     min-width: 44px; min-height: 44px; padding: 6px;
@@ -293,7 +312,6 @@
   }
   .rowbtn:hover, .rowbtn:active { background: var(--surface3); color: var(--text); }
   .rowbtn.remove:hover, .rowbtn.remove:active { color: var(--danger); }
-  .rowbtn.next { color: var(--primary); }
   /* Drag handle needs a generous finger-sized grab area; touch-action:none so
      dragging it never scrolls the list. */
   .drag-handle {
@@ -312,16 +330,23 @@
   .rowmain:active { opacity: .7; }
   .search-hint { margin: 0 2px 8px; }
 
-  .empty { color: var(--muted); font-size: 13px; padding: 8px 2px; }
+  .empty { color: var(--muted); font-size: 14px; padding: 8px 2px; }
   .search-bar { position: relative; margin-bottom: 10px; flex: 0 0 auto; }
-  .search-bar input { width: 100%; padding-left: 38px; }
-  .search-bar .icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); width: 20px; height: 20px; }
+  .search-bar input { width: 100%; padding-left: 38px; padding-right: 44px; }
+  .search-clear {
+    position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: 44px; height: 44px;
+    background: none; border: 0; color: var(--muted); cursor: pointer; border-radius: var(--r-sm);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .search-clear:hover, .search-clear:active { color: var(--text); }
+  .search-card { margin-bottom: 12px; }
+  .search-bar > .icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); width: 20px; height: 20px; }
 
   /* ── Stats ── */
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .stat { background: var(--surface2); border-radius: var(--r-sm); padding: 10px 6px; text-align: center; }
   .stat b { display: block; font-size: 20px; font-weight: 800; line-height: 1.15; }
-  .stat span { color: var(--muted); font-size: 11px; }
+  .stat span { color: var(--muted); font-size: 13px; }
 
   /* ── People ── */
   #peopleBtns { display: inline-flex; gap: 6px; flex-wrap: wrap; }
@@ -345,10 +370,10 @@
   .log { display: grid; gap: 10px; }
   .entry { background: var(--surface2); border-radius: var(--r-sm); padding: 10px 12px;
     border-left: 3px solid var(--secondary); }
-  .entry .meta { color: var(--muted); font-size: 11px; display: flex; justify-content: space-between; gap: 8px; }
-  .entry .note { margin: 5px 0; font-size: 13px; }
-  .entry ul { margin: 5px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
-  .shift { color: var(--secondary); font-weight: 600; font-size: 12px; }
+  .entry .meta { color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
+  .entry .note { margin: 5px 0; font-size: 14px; }
+  .entry ul { margin: 5px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  .shift { color: var(--secondary); font-weight: 600; font-size: 13px; }
 
   /* ── Banners ── */
   .banner { display: none; border-radius: var(--r-md); padding: 12px 14px; font-size: 13px;
@@ -437,19 +462,19 @@
   @keyframes dj-slide { 0% { margin-left: -38%; } 100% { margin-left: 100%; } }
 
   .dj-section-title {
-    font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+    font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
     color: var(--muted); margin-bottom: 10px;
   }
   .dj-empty { color: var(--muted); font-size: 13px; }
   .dj-phases { display: flex; gap: 4px; margin-bottom: 12px; }
   .dj-phase {
     flex: 1 1 0; padding: 6px 6px; border-radius: var(--r-sm); min-width: 0;
-    background: var(--surface2); font-size: 11px; text-align: center;
+    background: var(--surface2); font-size: 13px; text-align: center;
     color: var(--muted); border: 1px solid transparent;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .dj-phase.active { color: var(--text); border-color: var(--primary); background: var(--surface3); }
-  .dj-arc-note { font-size: 12px; color: var(--muted); margin: 10px 0 0; font-style: italic; }
+  .dj-arc-note { font-size: 13px; color: var(--muted); margin: 10px 0 0; font-style: italic; }
   .dj-note { font-size: 14px; line-height: 1.5; margin: 0 0 8px; }
   .dj-interp { font-size: 13px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
   .dj-shift { color: var(--secondary); font-weight: 600; font-size: 13px; margin: 0 0 10px; }
@@ -457,14 +482,14 @@
   .dj-pick { font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
   .dj-pick .e {
     flex: 0 0 auto; color: var(--on-primary); background: var(--primary);
-    border-radius: var(--r-full); padding: 1px 7px; font-size: 11px;
+    border-radius: var(--r-full); padding: 1px 7px; font-size: 13px;
     font-weight: 700; font-variant-numeric: tabular-nums;
   }
   .dj-pick .txt { min-width: 0; }
   .dj-pick .q { font-weight: 600; }
   .dj-pick .r { color: var(--muted); }
 
-  /* ════ Tablet: 2 columns ════ */
+  /* ════ Tablet: 2 columns ════ (Now Playing | Up Next + Settings) */
   @media (min-width: 700px) {
     .bottomnav { display: none; }
     .panels {
@@ -473,23 +498,21 @@
       grid-template-rows: 1fr; min-height: 0;
     }
     .panel { display: flex !important; padding: 0; height: auto; min-height: 0; }
-    /* col 1 = Now Playing + Search; col 2 = Up Next + Settings. */
-    #g-left, #g-right { display: flex; flex-direction: column; min-height: 0; overscroll-behavior: contain; }
-    /* Left column is a fixed-height frame: its children divide the viewport
-       height (art shrinks, results scroll) instead of the column overflowing. */
-    #g-left { overflow: hidden; }
-    #g-right { overflow-y: auto; }
-    #g-left > .panel, #g-right > .panel { margin-bottom: var(--gap); }
-    #g-left > .panel:last-child, #g-right > .panel:last-child { margin-bottom: 0; }
-    .panel#p-np { justify-content: flex-start; flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+    /* Each column scrolls on its own; Up Next and Settings share column 2. */
+    .panel#p-np { overflow-y: auto; padding-right: 2px; }
+    #g-right {
+      display: flex; flex-direction: column; min-height: 0;
+      overflow-y: auto; overscroll-behavior: contain; padding-right: 2px;
+    }
+    #g-right > .panel { flex: 0 0 auto; overflow: visible; margin-bottom: var(--gap); }
+    #g-right > .panel:last-child { margin-bottom: 0; }
     .np-main {
       background: var(--surface); border: 1px solid var(--outline);
       border-radius: var(--r-lg); padding: 16px 18px; box-shadow: var(--e2);
     }
     .np-start { padding-top: 12px; }
     .phone-only { display: none !important; }
-    /* Keep the Now Playing card compact on laptop viewports so Search below it
-       has plenty of room for results. */
+    /* Keep the player compact so the vibe and listener cards fit below it. */
     .panel#p-np .art-wrap {
       width: min(100%, 21vh, 210px); height: auto; aspect-ratio: 1 / 1;
       margin-bottom: 10px;
@@ -502,13 +525,10 @@
     .panel#p-np .controls .ctrl.primary { width: 52px; height: 52px; }
     .panel#p-np .volrow { margin-top: 4px; }
     .panel#p-np .pill.vibe { margin-top: 6px; }
-    /* Search fills the height left under Now Playing; only its results scroll. */
-    .panel#p-search { flex: 1 1 auto; min-height: 220px; }
-    .panel#p-search .card { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     .toast { bottom: 28px; }
   }
 
-  /* ════ Laptop / Desktop: 3 balanced columns ════ (Now Playing+Search | Up Next | Settings) */
+  /* ════ Laptop / Desktop: 3 balanced columns ════ (Now Playing | Up Next | Settings) */
   @media (min-width: 960px) {
     /* Use flexible fr units on all three columns so CSS Grid never expands
        columns 1 and 2 at the expense of starving column 3 on laptop widths. */
@@ -551,17 +571,13 @@
 <div class="app">
   <div class="panels">
 
-    <!-- col 1: Now Playing + Search -->
-    <div class="group" id="g-left">
-
-    <!-- ════ NOW PLAYING ════ -->
+    <!-- ════ NOW PLAYING ════ (phone tab 1; column 1 on tablet and laptop) -->
     <section class="panel active" id="p-np" data-panel="np">
       <div class="np-main">
         <div class="np-header">
           <h1><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5,10.37C15.54,10.37 16.38,9.53 16.38,8.5C16.38,7.46 15.54,6.63 14.5,6.63C13.46,6.63 12.63,7.46 12.63,8.5A1.87,1.87 0 0,0 14.5,10.37M14.5,1A7.5,7.5 0 0,1 22,8.5C22,10.67 21.08,12.63 19.6,14H9.4C7.93,12.63 7,10.67 7,8.5C7,4.35 10.36,1 14.5,1M6,21V22H4V21H2V15H22V21H20V22H18V21H6M4,18V19H13V18H4M15,17V19H17V17H15M19,17A1,1 0 0,0 18,18A1,1 0 0,0 19,19A1,1 0 0,0 20,18A1,1 0 0,0 19,17Z"/></svg> TideSync DJ</h1>
           <span class="header-status">
             <span class="pill status"><span class="dot connecting" id="conn"></span><span class="conn-text connecting" id="connText">Connecting…</span></span>
-            <span class="pill model" id="model"></span>
           </span>
         </div>
 
@@ -644,39 +660,69 @@
         <p class="ready-note" id="readyNote"></p>
       </div>
 
+      <div class="card" id="vibeCard">
+        <h2>Pick a vibe</h2>
+        <div class="chips" id="vibeChips">
+          <button class="vibe-chip" data-vibe="focus, calm instrumental">Focus</button>
+          <button class="vibe-chip" data-vibe="workout, upbeat and driving">Workout</button>
+          <button class="vibe-chip" data-vibe="dinner, relaxed and warm">Dinner</button>
+          <button class="vibe-chip" data-vibe="wind down, mellow">Wind down</button>
+          <button class="vibe-chip" data-vibe="party, dance">Party</button>
+          <button class="vibe-chip" data-vibe="sleep, soft and quiet">Sleep</button>
+        </div>
+        <div class="row nowrap vibe-own">
+          <input type="text" id="vibeInput" placeholder="Or describe your own…" aria-label="Describe a vibe"
+                 enterkeyhint="go" autocomplete="off" />
+          <button class="btn" id="setVibe">Set vibe</button>
+        </div>
+        <div class="playing-only">
+          <div class="row nowrap energy-row">
+            <button class="btn ghost grow" id="energyDown"><svg class="icon sm"><use href="#i-energy-down"/></svg> Calmer</button>
+            <button class="btn ghost grow" id="energyUp"><svg class="icon sm"><use href="#i-energy-up"/></svg> Hotter</button>
+          </div>
+          <button class="btn ghost block" id="nudge">Try something different</button>
+        </div>
+      </div>
+
+      <div class="card" id="peopleCard">
+        <h2>Who's listening</h2>
+        <div class="row">
+          <span id="peopleBtns"></span>
+          <button class="person-add" id="addPerson"><svg class="icon sm"><use href="#i-add"/></svg>Add</button>
+          <button class="person-add" id="editPeople"><svg class="icon sm"><use href="#i-edit"/></svg>Edit</button>
+        </div>
+      </div>
+
       <button class="btn ghost block np-more" id="djStatusBtn"><svg class="icon sm"><use href="#i-radio"/></svg> What's the DJ doing?</button>
     </section>
 
-      <!-- ════ SEARCH ════ -->
-      <section class="panel" id="p-search" data-panel="search">
-        <div class="panel-title">Search</div>
-        <div class="search-bar">
-          <svg class="icon"><use href="#i-search"/></svg>
-          <input type="search" id="searchInput" placeholder="Search a song to play next…"
-                 autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
-                 inputmode="search" enterkeyhint="search" />
-        </div>
-        <div class="card">
-          <div class="tracklist" id="searchResults"><div class="empty" id="searchEmpty">Find a song, then tap it to play it next.</div></div>
-        </div>
-      </section>
-
-    </div><!-- /g-left -->
-
-    <!-- col 2: Up Next + Settings -->
+    <!-- Up Next + Settings: one scrolling column on tablet; two columns on laptop -->
     <div class="group" id="g-right">
 
-      <!-- ════ UP NEXT ════ -->
+      <!-- ════ UP NEXT ════ (search at the top) -->
       <section class="panel" id="p-queue" data-panel="queue">
         <div class="panel-title">Up Next</div>
+        <div class="search-bar">
+          <svg class="icon"><use href="#i-search"/></svg>
+          <input type="search" id="searchInput" placeholder="Find a song to play next"
+                 aria-label="Find a song to play next"
+                 autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+                 inputmode="search" enterkeyhint="search" />
+          <button class="search-clear" id="searchClear" aria-label="Clear search" hidden>
+            <svg class="icon sm"><use href="#i-close"/></svg>
+          </button>
+        </div>
+        <div class="card search-card" id="searchCard" hidden>
+          <div class="tracklist" id="searchResults"></div>
+        </div>
         <div class="card">
-          <div class="tracklist" id="queueList"><div class="empty">Nothing queued yet.</div></div>
+          <div class="tracklist" id="queueList"><div class="empty">Nothing up next yet.</div></div>
         </div>
       </section>
 
-        <!-- ════ SETTINGS ════ -->
-        <section class="panel" id="p-settings" data-panel="settings">
-          <div class="panel-title">Settings</div>
+      <!-- ════ SETTINGS ════ -->
+      <section class="panel" id="p-settings" data-panel="settings">
+        <div class="panel-title">Settings</div>
 
           <div class="card phone-only">
             <h2>Speaker</h2>
@@ -688,92 +734,70 @@
             <small class="hint block">Choosing another speaker while music is playing moves the music there.</small>
           </div>
 
-          <div class="card">
-            <h2>Set Vibe</h2>
-            <div class="row">
-              <input type="text" id="vibeInput" placeholder="e.g. late night focus, high energy cooking" />
-            </div>
-            <div class="row nowrap" style="margin-top:8px">
-              <button class="btn grow" id="setVibe">Set Vibe</button>
-              <button class="btn ghost grow" id="nudge" title="Try again — a different direction">Nudge DJ</button>
-            </div>
-            <div class="row nowrap" style="margin-top:8px">
-              <button class="btn ghost grow" id="energyDown"><svg class="icon sm"><use href="#i-energy-down"/></svg> Calmer</button>
-              <button class="btn ghost grow" id="energyUp"><svg class="icon sm"><use href="#i-energy-up"/></svg> Hotter</button>
-            </div>
-          </div>
-
-          <div class="card">
-            <h2>Who's listening</h2>
-            <div class="row">
-              <span id="peopleBtns"></span>
-              <button class="person-add" id="addPerson"><svg class="icon sm"><use href="#i-add"/></svg>Add</button>
-              <button class="person-add" id="editPeople"><svg class="icon sm"><use href="#i-edit"/></svg>Edit</button>
-            </div>
-          </div>
-
           <details class="card">
             <summary>
-              <span>Session Stats</span>
+              <span>Session stats</span>
               <span class="summary-meta" id="statsSummary">0 played · 0 skips</span>
             </summary>
             <div class="details-body">
               <div class="stats">
                 <div class="stat"><b id="sPlayed">0</b><span>played</span></div>
-                <div class="stat"><b id="sDisc">0</b><span>heard</span></div>
+                <div class="stat"><b id="sDisc">0</b><span>queued</span></div>
                 <div class="stat"><b id="sArtists">0</b><span>artists</span></div>
                 <div class="stat"><b id="sSkips">0</b><span>skips</span></div>
               </div>
               <small id="libSummary" class="hint block"></small>
-              <small class="hint block">A session starts when you Start Radio (or pick a song) and resets then; Stop ends it.</small>
+              <small class="hint block">A session starts when you start the music or a new mix, and ends when you press Stop.</small>
             </div>
           </details>
 
           <details class="card">
             <summary>
-              <span>DJ Decision Log</span>
+              <span>Why these songs</span>
               <span class="summary-meta" id="logSummary"></span>
             </summary>
             <div class="details-body">
-              <div class="log" id="log"><div class="empty">No decisions yet.</div></div>
+              <div class="log" id="log"><div class="empty">Nothing chosen yet.</div></div>
             </div>
           </details>
 
           <details class="card">
             <summary>
               <span>Advanced</span>
-              <span class="summary-meta">Playlist &amp; taste</span>
+              <span class="summary-meta">Playlist, listeners, AI</span>
             </summary>
             <div class="details-body">
-              <h2>Playlist builder</h2>
+              <h2>Save as a playlist</h2>
               <small class="hint block" style="margin-top:0;margin-bottom:8px">
-                Build a playlist from the <span id="sessionCount">0</span> track(s) heard this
-                session and export it to your music service — great for offline use / flights.
+                Save the <span id="sessionCount">0</span> song(s) from this session as a playlist in
+                Music Assistant, to play again later.
               </small>
               <div class="row">
-                <input type="text" id="playlistName" placeholder="Playlist name (optional)" />
-                <button class="btn" id="savePlaylist">Create playlist</button>
+                <input type="text" id="playlistName" placeholder="Playlist name (optional)" aria-label="Playlist name" />
+                <button class="btn" id="savePlaylist">Save playlist</button>
               </div>
               <small id="saveMsg" class="hint block"></small>
 
-              <h2 style="margin-top:14px">Learned taste profiles</h2>
+              <h2 style="margin-top:16px">What the DJ knows about each listener</h2>
               <small class="hint block" style="margin-top:0;margin-bottom:8px">
-                What the DJ has learned about each listener (read-only — it learns from likes &amp; blocks).
+                Built from each person's likes and blocks. You can't edit it here.
               </small>
-              <button class="btn ghost" id="viewTasteBtn">View learned taste</button>
+              <button class="btn ghost" id="viewTasteBtn">Show</button>
               <div id="tasteView" class="hint block"></div>
+
+              <h2 style="margin-top:16px">Reading vibes</h2>
+              <small class="hint block" style="margin-top:0" id="modelInfo"></small>
             </div>
           </details>
-        </section>
+      </section>
 
     </div><!-- /g-right -->
   </div><!-- /panels -->
 
-  <!-- ════ BOTTOM NAV (mobile) ════ -->
+  <!-- ════ BOTTOM NAV (phone) ════ -->
   <nav class="bottomnav" id="bottomnav">
     <button class="navbtn active" data-tab="np"><svg class="icon"><use href="#i-disc"/></svg>Now Playing</button>
     <button class="navbtn" data-tab="queue"><svg class="icon"><use href="#i-queue"/></svg>Up Next</button>
-    <button class="navbtn" data-tab="search"><svg class="icon"><use href="#i-search"/></svg>Search</button>
     <button class="navbtn" data-tab="settings"><svg class="icon"><use href="#i-settings"/></svg>Settings</button>
   </nav>
 </div>
@@ -805,12 +829,12 @@
         <div class="dj-bar indeterminate" id="djBar"><div class="dj-bar-fill" id="djBarFill"></div></div>
       </div>
       <div>
-        <div class="dj-section-title">Energy arc</div>
-        <div id="djArc"><div class="dj-empty">No session yet — hit Start Radio.</div></div>
+        <div class="dj-section-title">Energy over time</div>
+        <div id="djArc"><div class="dj-empty">Nothing playing yet. Tap Start the music.</div></div>
       </div>
       <div>
-        <div class="dj-section-title">The DJ's read</div>
-        <div id="djReason"><div class="dj-empty">Waiting on the first set…</div></div>
+        <div class="dj-section-title">Why these songs</div>
+        <div id="djReason"><div class="dj-empty">Waiting for the first songs…</div></div>
       </div>
     </div>
   </div>
@@ -995,8 +1019,14 @@
         placeholder.style.display = "block";
       }
 
-      document.getElementById("model").textContent = s.model || "";
+      document.getElementById("p-np").classList.toggle("is-playing", running);
+      document.getElementById("modelInfo").textContent = s.claude_enabled
+        ? `Claude (${s.model}) turns each vibe into a description of how the music should sound.`
+        : "Keyword rules read each vibe (no Anthropic API key is set). Adding a key in the add-on's " +
+          "configuration lets Claude read vibes too.";
       document.getElementById("vibePill").textContent = s.vibe || "no vibe set";
+      document.querySelectorAll(".vibe-chip").forEach(c =>
+        c.classList.toggle("active", !!s.vibe && c.dataset.vibe === s.vibe));
       const st = s.stats || {};
       const played = st.tracks_played || 0;
       const skips = st.skips || 0;
@@ -1105,7 +1135,7 @@
   function renderQueue() {
     const el = document.getElementById("queueList");
     if (!queueItems.length) {
-      el.innerHTML = '<div class="empty">Nothing queued yet.</div>';
+      el.innerHTML = '<div class="empty">Nothing up next yet.</div>';
       return;
     }
     el.innerHTML = queueItems.map(t => `
@@ -1212,11 +1242,20 @@
   // ── Search ──
   let searchTimer = null;
   const searchInput = document.getElementById("searchInput");
+  const searchCard = document.getElementById("searchCard");
+  const searchClear = document.getElementById("searchClear");
   searchInput.addEventListener("input", () => {
     clearTimeout(searchTimer);
     const q = searchInput.value.trim();
-    if (!q) { renderSearch([]); return; }
+    searchClear.hidden = !searchInput.value;
+    if (!q) { searchCard.hidden = true; return; }
     searchTimer = setTimeout(() => runSearch(q), 350);
+  });
+  searchClear.addEventListener("click", () => {
+    searchInput.value = "";
+    searchClear.hidden = true;
+    searchCard.hidden = true;
+    searchInput.focus();
   });
   searchInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { clearTimeout(searchTimer); runSearch(searchInput.value.trim()); }
@@ -1224,12 +1263,13 @@
   async function runSearch(q) {
     if (!q) return;
     const box = document.getElementById("searchResults");
+    searchCard.hidden = false;
     box.innerHTML = '<div class="empty">Searching…</div>';
     try {
       const { tracks } = await getJSON("/search?q=" + encodeURIComponent(q));
       renderSearch(tracks || []);
     } catch (e) {
-      box.innerHTML = '<div class="empty">Search failed — is Music Assistant connected?</div>';
+      box.innerHTML = '<div class="empty">Search didn\'t work. Is Music Assistant connected?</div>';
     }
   }
   function renderSearch(tracks) {
@@ -1296,26 +1336,35 @@
     finally { btn.disabled = false; }
   });
 
+  // The DJ's reasons for a pick, in plain words.
+  const WHY = { start: "Started", auto: "Topped up", vibe: "New vibe", nudge: "Something different",
+                "energy up": "Hotter", "energy down": "Calmer", "listener changed": "New listener" };
+  function whyLabel(reason) {
+    reason = String(reason || "");
+    if (reason.startsWith("radio from ")) return "New mix from " + reason.slice(11);
+    return WHY[reason] || reason;
+  }
   async function refreshLog() {
     try {
       const { decisions } = await getJSON("/history");
       const el = document.getElementById("log");
       const summary = document.getElementById("logSummary");
       if (!decisions.length) {
-        el.innerHTML = '<div class="empty">No decisions yet.</div>';
-        if (summary) summary.textContent = "none yet";
+        el.innerHTML = '<div class="empty">Nothing chosen yet.</div>';
+        if (summary) summary.textContent = "nothing yet";
         return;
       }
-      if (summary) summary.textContent = `${decisions.length} set${decisions.length === 1 ? "" : "s"}`;
+      const chosen = decisions.reduce((n, d) => n + (d.enqueued || 0), 0);
+      if (summary) summary.textContent = `${chosen} song${chosen === 1 ? "" : "s"} chosen`;
       el.innerHTML = decisions.slice(0, 4).map(d => {
         const t = (d.timestamp || "").slice(11, 16);  // HH:MM only
         const vr = d.vibe_reading || {};
-        const read = vr.interpretation ? `<div class="shift">🎯 ${esc(vr.interpretation)}</div>` : "";
+        const read = vr.interpretation ? `<div class="shift">Listening for: ${esc(vr.interpretation)}</div>` : "";
         const tracks = (d.tracks || []).slice(0, 3).map(x => `<li>${esc(x.query)}</li>`).join("");
         const more = (d.tracks || []).length > 3 ? `<li class="empty">+${(d.tracks||[]).length - 3} more</li>` : "";
         return `
         <div class="entry">
-          <div class="meta"><span>${esc(t)} · ${esc(d.reason)}</span><span>${d.enqueued} added</span></div>
+          <div class="meta"><span>${esc(t)} · ${esc(whyLabel(d.reason))}</span><span>${d.enqueued} added</span></div>
           <div class="note">${esc(d.dj_note)}</div>
           ${read}
           <ul>${tracks}${more}</ul>
@@ -1396,20 +1445,46 @@
   });
 
   // ── Vibe / nudge ──
-  document.getElementById("setVibe").addEventListener("click", async (e) => {
-    const v = document.getElementById("vibeInput").value.trim();
-    if (!v) return;
-    const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Rebuilding…";
+  // A vibe also starts the music when the DJ is stopped.
+  async function setVibe(prompt, label) {
     beginDjRun();
-    try {
-      await postJSON("/vibe", { prompt: v });
-      document.getElementById("vibeInput").value = "";
-    } finally { btn.disabled = false; btn.textContent = "Set Vibe"; refreshStatus(); refreshLog(); refreshQueue(); }
+    const r = await postJSON("/vibe", { prompt });
+    toast(r.ok ? `Vibe: ${label}` : (r.error || "Couldn't change the vibe"));
+    refreshStatus(); refreshLog(); refreshQueue();
+    return r;
+  }
+  document.getElementById("vibeChips").addEventListener("click", async (e) => {
+    const chip = e.target.closest(".vibe-chip");
+    if (!chip) return;
+    const chips = document.querySelectorAll(".vibe-chip");
+    chips.forEach(c => { c.disabled = true; c.classList.toggle("active", c === chip); });
+    try { await setVibe(chip.dataset.vibe, chip.textContent.trim()); }
+    finally { chips.forEach(c => { c.disabled = false; }); }
+  });
+  async function setOwnVibe() {
+    const field = document.getElementById("vibeInput");
+    const v = field.value.trim();
+    if (!v) { field.focus(); return; }
+    const btn = document.getElementById("setVibe");
+    btn.disabled = true; btn.textContent = "Setting…";
+    field.blur();
+    try { if ((await setVibe(v, v)).ok) field.value = ""; }
+    finally { btn.disabled = false; btn.textContent = "Set vibe"; }
+  }
+  document.getElementById("setVibe").addEventListener("click", setOwnVibe);
+  document.getElementById("vibeInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); setOwnVibe(); }
   });
   document.getElementById("nudge").addEventListener("click", async (e) => {
-    const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Rebuilding…";
+    const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Finding something different…";
     beginDjRun();
-    try { await postJSON("/nudge"); } finally { btn.disabled = false; btn.textContent = "Nudge DJ"; refreshStatus(); refreshLog(); refreshQueue(); }
+    try {
+      const r = await postJSON("/nudge");
+      if (!r.ok) toast(r.error || "Couldn't change direction");
+    } finally {
+      btn.disabled = false; btn.textContent = "Try something different";
+      refreshStatus(); refreshLog(); refreshQueue();
+    }
   });
   async function nudgeEnergy(direction, btn) {
     btn.disabled = true;
@@ -1611,7 +1686,7 @@
         ? `Saved "${r.playlist}" with ${r.track_count} track(s).`
         : `Couldn't save: ${r.error || "unknown error"}`;
     } catch (err) { msg.textContent = "Save failed."; }
-    finally { btn.disabled = false; btn.textContent = "Create playlist"; }
+    finally { btn.disabled = false; btn.textContent = "Save playlist"; }
   });
   document.getElementById("viewTasteBtn").addEventListener("click", async (e) => {
     const box = document.getElementById("tasteView");
@@ -1620,8 +1695,8 @@
       const { people } = await getJSON("/users/profiles");
       box.innerHTML = (people || []).map(p =>
         `<div style="margin:8px 0"><b>${esc(p.name)}${p.active ? " (active)" : ""}</b><br>${esc(p.summary)}</div>`
-      ).join("") || "No profiles yet.";
-    } catch (err) { box.textContent = "Couldn't load taste profiles."; }
+      ).join("") || "Nothing learned yet.";
+    } catch (err) { box.textContent = "Couldn't load that right now."; }
     finally { e.currentTarget.disabled = false; }
   });
 
@@ -1703,7 +1778,7 @@
     const box = document.getElementById("djArc");
     const hasPlan = plan && plan.phases && plan.phases.length;
     if (!hasPlan && !(arc && arc.length)) {
-      box.innerHTML = '<div class="dj-empty">No session yet — hit Start Radio.</div>';
+      box.innerHTML = '<div class="dj-empty">Nothing playing yet. Tap Start the music.</div>';
       return;
     }
     let html = "";
@@ -1726,7 +1801,7 @@
 
   function renderDjReason(d) {
     const box = document.getElementById("djReason");
-    if (!d) { box.innerHTML = '<div class="dj-empty">Waiting on the first set…</div>'; return; }
+    if (!d) { box.innerHTML = '<div class="dj-empty">Waiting for the first songs…</div>'; return; }
     let html = "";
     if (d.dj_note) html += `<p class="dj-note">${esc(d.dj_note)}</p>`;
     const vr = d.vibe_reading || {};

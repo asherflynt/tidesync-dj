@@ -157,6 +157,34 @@ class Run:
         self.wait("!document.getElementById('stopBtn').hidden")
         self.page.wait_for_timeout(300)
         self.audit("playing")
+        assert not self.page.locator("#djOverlay.show").count(), "status window opened by itself"
+
+    def banner(self) -> None:
+        # The fake Music Assistant finishes too fast to catch the banner, so /dj/status is made
+        # to report a busy DJ; the page's own polling then drives the banner.
+        self.page.evaluate("""() => {
+          window.__realGetJSON = getJSON;
+          window.getJSON = async (path) => {
+            const r = await window.__realGetJSON(path);
+            if (path === "/dj/status") r.activity = {phase: "enqueuing", target: 10, enqueued: 4};
+            return r;
+          };
+          refreshDjStatus();
+        }""")
+        self.wait("!document.getElementById('djBanner').hidden")
+        assert "Adding songs" in self.page.locator("#djBannerLabel").inner_text()
+        self.page.locator("#djBanner").scroll_into_view_if_needed()
+        self.audit("dj-banner")
+        assert not self.page.locator("#djOverlay.show").count(), "status window opened by itself"
+        self.tap("#djBannerMore")
+        self.wait("document.getElementById('djOverlay').classList.contains('show')")
+        self.audit("dj-window")
+        self.tap("#djClose")
+        self.wait("!document.getElementById('djOverlay').classList.contains('show')")
+        self.tap("#djBannerHide")
+        self.page.wait_for_timeout(4500)  # a few polls later it is still hidden
+        assert self.page.locator("#djBanner").is_hidden(), "hidden banner came back"
+        self.page.evaluate("window.getJSON = window.__realGetJSON; refreshDjStatus()")
 
     def vibe_chip(self) -> None:
         self.tap('.vibe-chip[data-vibe^="dinner"]')
@@ -270,6 +298,7 @@ def main() -> int:
                 page.goto(h.base)
                 run.step("library states", run.library_states)
                 run.step("start", run.start)
+                run.step("progress banner", run.banner)
                 run.step("vibe chip", run.vibe_chip)
                 run.step("calmer/hotter", run.energy)
                 run.step("block + undo", run.block_undo)
