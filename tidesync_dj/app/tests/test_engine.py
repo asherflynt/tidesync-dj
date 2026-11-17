@@ -96,6 +96,12 @@ class FakeMA:
         if command == "player_queues/next":
             self.index = min((self.index or 0) + 1, len(self.queue) - 1)
             return None
+        if command == "player_queues/play_index":
+            index = args["index"]
+            if isinstance(index, str):  # MA also accepts a queue_item_id
+                index = next(i for i, it in enumerate(self.queue) if it["queue_item_id"] == index)
+            self.index, self.state = int(index), "playing"
+            return None
         if command in ("player_queues/play", "player_queues/resume"):
             self.state = "playing"
             self.index = self.index or 0
@@ -227,6 +233,71 @@ async def test_like_toggles_and_syncs_to_music_assistant(rig):
     assert (await engine.like_current())["liked"] is False
     assert ("music/favorites/remove_item",
             {"media_type": "track", "library_item_id": current["item_id"]}) in ma.calls
+
+
+async def test_block_skips_and_undo_restores_everything(rig, tmp_path):
+    engine, ma, lib = rig
+    await engine.start_radio()
+    current = ma.queue[0]["media_item"]
+    tid = int(current["item_id"])
+    person = engine._users.active
+    person.add_block("Other - Song", "library://track/999")  # an unrelated block stays as it was
+    lib.record_play(tid, skipped=False)  # earlier history of this track must come back unchanged
+    blocks_before = [vars(b).copy() for b in person.blocks]
+    feedback_before = lib.feedback(tid)
+
+    result = await engine.block_current()
+    assert result["ok"] and result["days"] == 21 and result["undo"]
+    assert ma.index == 1 and engine.stats["skips"] == 1
+    assert current["uri"] in person.blocked_uris()
+    assert lib.feedback(tid)["skips"] == 1
+
+    assert not (await engine.undo_block("wrong token"))["ok"]
+    undone = await engine.undo_block(result["undo"])
+    assert undone == {"ok": True, "unblocked": result["blocked"], "resumed": True}
+    assert [vars(b) for b in engine._users.active.blocks] == blocks_before
+    assert lib.feedback(tid) == feedback_before and engine.stats["skips"] == 0
+    assert ma.index == 0 and ma.queue[0]["media_item"]["uri"] == current["uri"]  # the song is back
+    # saved to disk too, and only once
+    assert current["uri"] not in UserStore(tmp_path).get(person.slug).blocked_uris()
+    assert not (await engine.undo_block(result["undo"]))["ok"]
+
+
+async def test_undoing_a_repeat_block_keeps_the_earlier_one(rig, monkeypatch):
+    engine, ma, lib = rig
+    await engine.start_radio()
+    current = ma.queue[0]["media_item"]
+    person = engine._users.active
+    person.add_block("Earlier label", current["uri"])
+    earlier = vars(person.blocks[0]).copy()
+    result = await engine.block_current()
+    assert person.blocks[0].count == 2 and result["days"] == 60
+    assert lib.feedback(int(current["item_id"]))["skips"] == 1
+    assert (await engine.undo_block())["ok"]  # no token: the latest block
+    assert [vars(b) for b in engine._users.active.blocks] == [earlier]
+    assert lib.feedback(int(current["item_id"])) is None
+    # and too late is too late
+    result = await engine.block_current()
+    monkeypatch.setattr(engine_module, "UNDO_WINDOW", -1)
+    assert not (await engine.undo_block(result["undo"]))["ok"]
+    assert current["uri"] in engine._users.active.blocked_uris()
+
+
+async def test_block_undo_endpoint(rig):
+    import httpx
+
+    import main
+    engine, ma, _ = rig
+    await engine.start_radio()
+    main.app.state.engine = engine
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://dj") as client:
+        blocked = (await client.post("/block")).json()
+        assert blocked["ok"] and ma.index == 1
+        undone = await client.post("/block/undo", json={"token": blocked["undo"]})
+        assert undone.status_code == 200 and undone.json()["unblocked"] == blocked["blocked"]
+        again = await client.post("/block/undo", json={"token": blocked["undo"]})
+        assert again.status_code == 400 and not again.json()["ok"]
+    assert ma.index == 0
 
 
 async def test_works_without_sound_search(tmp_path):

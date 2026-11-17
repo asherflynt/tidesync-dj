@@ -303,6 +303,14 @@
   }
   .drag-handle:active { cursor: grabbing; color: var(--text); }
   .rowactions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+  /* A search result is one big "play next" button plus a "more" button. */
+  .rowmain {
+    flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 10px;
+    background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left;
+    cursor: pointer; border-radius: 8px;
+  }
+  .rowmain:active { opacity: .7; }
+  .search-hint { margin: 0 2px 8px; }
 
   .empty { color: var(--muted); font-size: 13px; padding: 8px 2px; }
   .search-bar { position: relative; margin-bottom: 10px; flex: 0 0 auto; }
@@ -322,11 +330,13 @@
     border-radius: var(--r-full); padding: 8px 16px; min-height: 44px; font-size: 15px;
     font-weight: 600; cursor: pointer; transition: all .15s; line-height: 1;
   }
+  .person { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .person:hover, .person:active { background: var(--surface3); }
   .person.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
   .person-add {
     background: var(--surface2); color: var(--muted); border: 1px solid var(--outline);
-    border-radius: var(--r-full); width: 44px; height: 44px; font-size: 18px; cursor: pointer;
+    border-radius: var(--r-full); min-width: 44px; height: 44px; padding: 0 14px 0 10px;
+    font-size: 15px; font-weight: 600; cursor: pointer; gap: 4px;
     display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
   }
   .person-add:hover, .person-add:active { color: var(--text); background: var(--surface3); }
@@ -352,10 +362,41 @@
     position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom));
     transform: translateX(-50%) translateY(20px); background: var(--surface3);
     color: var(--text); border: 1px solid var(--outline); border-radius: var(--r-full);
-    padding: 11px 20px; font-size: 14px; box-shadow: var(--e2); opacity: 0;
-    pointer-events: none; transition: opacity .2s, transform .2s; z-index: 50; max-width: 86vw;
+    padding: 11px 20px; font-size: 15px; box-shadow: var(--e2); opacity: 0; visibility: hidden;
+    pointer-events: none; transition: opacity .2s, transform .2s, visibility .2s; z-index: 150;
+    max-width: min(92vw, 520px); width: max-content; display: flex; align-items: center; gap: 8px;
   }
-  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+  .toast.has-action { pointer-events: auto; border-radius: var(--r-md); padding: 4px 4px 4px 16px; }
+  .toast-text { min-width: 0; }
+  .toast-action {
+    flex: 0 0 auto; background: none; border: 0; color: var(--primary); cursor: pointer;
+    font-size: 15px; font-weight: 800; min-height: 44px; min-width: 64px; padding: 0 14px;
+    border-radius: var(--r-sm);
+  }
+  .toast-action:hover, .toast-action:active { background: var(--surface2); }
+
+  /* ── Sheet: small in-page dialog for menus and short forms ── */
+  .sheet-overlay {
+    position: fixed; inset: 0; z-index: 120; display: none; justify-content: center;
+    align-items: flex-start; background: rgba(0,0,0,.55);
+    padding: calc(env(safe-area-inset-top) + 9vh) 14px 14px;
+  }
+  .sheet-overlay.show { display: flex; }
+  .sheet-card {
+    background: var(--surface); border: 1px solid var(--outline); border-radius: var(--r-lg);
+    box-shadow: var(--e3); width: min(440px, 100%); max-height: 80dvh; overflow-y: auto;
+    padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .sheet-card h2 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+  .sheet-body { display: flex; flex-direction: column; gap: 10px; }
+  .sheet-body p { margin: 0; color: var(--muted); font-size: 14px; }
+  .sheet-foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .sheet-foot .btn { flex: 1 1 0; }
+  .sheet-menu { display: flex; flex-direction: column; gap: 8px; }
+  .sheet-menu .btn { justify-content: flex-start; width: 100%; font-size: 16px; min-height: 50px; padding: 12px 16px; }
+  .sheet-person { display: flex; gap: 8px; align-items: center; }
+  .sheet-person .confirm { flex: 1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; }
 
   /* ── DJ status modal (popup over the main UI) ── */
   .dj-overlay {
@@ -502,6 +543,8 @@
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></symbol>
   <symbol id="i-energy-up" viewBox="0 0 24 24"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></symbol>
   <symbol id="i-energy-down" viewBox="0 0 24 24"><g transform="translate(12 12) scale(.62) translate(-12 -12)"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></g></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M12 8a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></symbol>
   <symbol id="i-drag" viewBox="0 0 24 24"><path d="M9 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm9-12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm0 6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/></symbol>
 </svg>
 
@@ -542,20 +585,21 @@
           <div class="track-title" id="nowPlaying">—</div>
           <div class="track-meta" id="meta"></div>
 
+          <!-- Like and Block sit at opposite ends so one can't be tapped for the other. -->
           <div class="controls">
-            <button class="ctrl" id="prevBtn" title="Previous track">
-              <svg class="icon"><use href="#i-prev"/></svg>
-            </button>
-            <button class="ctrl" id="pauseBtn" title="Pause / Resume">
-              <svg class="icon"><use id="pauseIcon" href="#i-pause"/></svg>
-            </button>
-            <button class="ctrl primary" id="skipBtn" title="Skip track">
-              <svg class="icon"><use href="#i-skip"/></svg>
-            </button>
-            <button class="ctrl like" id="likeBtn" disabled title="Like track">
+            <button class="ctrl like" id="likeBtn" disabled title="Like" aria-label="Like">
               <svg class="icon"><use href="#i-heart-outline"/></svg>
             </button>
-            <button class="ctrl block" id="blockBtn" disabled title="Block this song">
+            <button class="ctrl" id="prevBtn" title="Previous song" aria-label="Previous song">
+              <svg class="icon"><use href="#i-prev"/></svg>
+            </button>
+            <button class="ctrl primary" id="pauseBtn" title="Pause" aria-label="Pause">
+              <svg class="icon"><use id="pauseIcon" href="#i-pause"/></svg>
+            </button>
+            <button class="ctrl" id="skipBtn" title="Skip" aria-label="Skip">
+              <svg class="icon"><use href="#i-skip"/></svg>
+            </button>
+            <button class="ctrl block" id="blockBtn" disabled title="Block this song" aria-label="Block this song">
               <svg class="icon"><use href="#i-block"/></svg>
             </button>
           </div>
@@ -563,7 +607,6 @@
             <svg class="icon sm" aria-hidden="true"><use href="#i-volume"/></svg>
             <input type="range" id="volume" min="0" max="100" value="50" aria-label="Volume" />
           </div>
-          <div class="ctrl-msg" id="likeMsg"></div>
           <span class="pill vibe" id="vibePill">no vibe set</span>
         </div>
 
@@ -614,7 +657,7 @@
                  inputmode="search" enterkeyhint="search" />
         </div>
         <div class="card">
-          <div class="tracklist" id="searchResults"><div class="empty" id="searchEmpty">Search to add a song as “next up”.</div></div>
+          <div class="tracklist" id="searchResults"><div class="empty" id="searchEmpty">Find a song, then tap it to play it next.</div></div>
         </div>
       </section>
 
@@ -653,16 +696,19 @@
             <div class="row nowrap" style="margin-top:8px">
               <button class="btn grow" id="setVibe">Set Vibe</button>
               <button class="btn ghost grow" id="nudge" title="Try again — a different direction">Nudge DJ</button>
-              <button class="ctrl sm" id="energyDown" title="Less energy"><svg class="icon sm"><use href="#i-energy-down"/></svg></button>
-              <button class="ctrl sm" id="energyUp" title="More energy"><svg class="icon sm"><use href="#i-energy-up"/></svg></button>
+            </div>
+            <div class="row nowrap" style="margin-top:8px">
+              <button class="btn ghost grow" id="energyDown"><svg class="icon sm"><use href="#i-energy-down"/></svg> Calmer</button>
+              <button class="btn ghost grow" id="energyUp"><svg class="icon sm"><use href="#i-energy-up"/></svg> Hotter</button>
             </div>
           </div>
 
           <div class="card">
-            <h2>Listening</h2>
+            <h2>Who's listening</h2>
             <div class="row">
               <span id="peopleBtns"></span>
-              <button class="person-add" id="addPerson" title="Add a person">＋</button>
+              <button class="person-add" id="addPerson"><svg class="icon sm"><use href="#i-add"/></svg>Add</button>
+              <button class="person-add" id="editPeople"><svg class="icon sm"><use href="#i-edit"/></svg>Edit</button>
             </div>
           </div>
 
@@ -732,7 +778,19 @@
   </nav>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span class="toast-text" id="toastText"></span>
+  <button class="toast-action" id="toastAction" hidden>Undo</button>
+</div>
+
+<!-- ── Sheet (menus, listener editing) ── -->
+<div class="sheet-overlay" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="sheet-card">
+    <h2 id="sheetTitle"></h2>
+    <div class="sheet-body" id="sheetBody"></div>
+    <div class="sheet-foot" id="sheetFoot"></div>
+  </div>
+</div>
 
 <!-- ── DJ status modal ── -->
 <div class="dj-overlay" id="djOverlay" role="dialog" aria-modal="true" aria-labelledby="djModalTitle">
@@ -788,14 +846,56 @@
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   }
 
-  let toastTimer = null;
-  function toast(msg) {
-    const el = document.getElementById("toast");
-    el.textContent = msg;
-    el.classList.add("show");
+  // A short message at the bottom; with an action (e.g. Undo) it stays longer.
+  let toastTimer = null, toastRun = null;
+  const toastEl = document.getElementById("toast");
+  const toastBtn = document.getElementById("toastAction");
+  function hideToast() { toastEl.classList.remove("show"); toastRun = null; }
+  function toast(msg, action) {
+    document.getElementById("toastText").textContent = msg;
+    toastRun = action ? action.run : null;
+    toastBtn.hidden = !action;
+    if (action) toastBtn.textContent = action.label;
+    toastEl.classList.toggle("has-action", !!action);
+    toastEl.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
+    toastTimer = setTimeout(hideToast, action ? 8000 : 2600);
   }
+  toastBtn.addEventListener("click", () => {
+    const run = toastRun;
+    clearTimeout(toastTimer);
+    hideToast();
+    if (run) run();
+  });
+
+  // ── Sheet: a small in-page dialog (replaces prompt/confirm) ──
+  const sheetEl = document.getElementById("sheet");
+  let sheetReturnFocus = null;
+  function openSheet(title, bodyHTML, buttons) {
+    sheetReturnFocus = document.activeElement;
+    document.getElementById("sheetTitle").textContent = title;
+    document.getElementById("sheetBody").innerHTML = bodyHTML;
+    const foot = document.getElementById("sheetFoot");
+    foot.innerHTML = "";
+    for (const b of buttons || []) {
+      const btn = document.createElement("button");
+      btn.className = "btn " + (b.kind || "");
+      btn.id = b.id || "";
+      btn.textContent = b.label;
+      btn.addEventListener("click", b.run);
+      foot.appendChild(btn);
+    }
+    foot.hidden = !(buttons && buttons.length);
+    sheetEl.classList.add("show");
+    const first = sheetEl.querySelector("input, .sheet-menu .btn, .sheet-foot .btn");
+    if (first && first.tagName === "INPUT") first.focus();
+  }
+  function closeSheet() {
+    sheetEl.classList.remove("show");
+    if (sheetReturnFocus && sheetReturnFocus.focus) sheetReturnFocus.focus({ preventScroll: true });
+  }
+  sheetEl.addEventListener("click", (e) => { if (e.target === sheetEl) closeSheet(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sheetEl.classList.contains("show")) closeSheet(); });
 
   // ── Tab switching (mobile) ──
   function showTab(tab) {
@@ -844,7 +944,8 @@
       btn.querySelector("svg").innerHTML = `<use href="#${wantIcon}"/>`;
       btn.dataset.icon = wantIcon;
     }
-    btn.title = isPaused ? "Resume" : "Pause";
+    btn.title = isPaused ? "Play" : "Pause";
+    btn.setAttribute("aria-label", btn.title);
   }
   // While this is in the future, status polls won't override the icon — MA's
   // player state is eventually-consistent and would otherwise flip it back.
@@ -856,7 +957,8 @@
     const use = btn.querySelector("use");
     const want = liked ? "#i-heart" : "#i-heart-outline";
     if (use.getAttribute("href") !== want) use.setAttribute("href", want);
-    btn.title = liked ? "Unlike" : "Like track";
+    btn.title = liked ? "Unlike" : "Like";
+    btn.setAttribute("aria-label", btn.title);
   }
 
   async function refreshStatus() {
@@ -1136,54 +1238,62 @@
       box.innerHTML = '<div class="empty">No matches. Try another search.</div>';
       return;
     }
-    box.innerHTML = tracks.map(t => `
-      <div class="trackrow" data-uri="${esc(t.uri)}" data-label="${esc(((t.artist ? t.artist + " - " : "") + (t.name || "")).trim())}">
-        ${thumbHTML(t.image)}
-        ${trackText(t)}
-        <div class="rowactions">
-          <button class="rowbtn" data-act="add" title="Add to end of queue">
-            <svg class="icon sm"><use href="#i-add"/></svg>
-          </button>
-          <button class="rowbtn next" data-act="next" title="Play next">
-            <svg class="icon sm"><use href="#i-next-up"/></svg>
-          </button>
-          <button class="rowbtn" data-act="radio" title="Start radio from this song">
-            <svg class="icon sm"><use href="#i-radio"/></svg>
-          </button>
-        </div>
-      </div>`).join("");
+    box.innerHTML = '<div class="hint search-hint">Tap a song to play it next.</div>' + tracks.map(t => {
+      const label = ((t.artist ? t.artist + " - " : "") + (t.name || "")).trim();
+      return `
+      <div class="trackrow" data-uri="${esc(t.uri)}" data-label="${esc(label)}">
+        <button class="rowmain" data-act="next" aria-label="Play next: ${esc(label)}">
+          ${thumbHTML(t.image)}
+          ${trackText(t)}
+        </button>
+        <button class="rowbtn more" data-act="more" aria-label="More for ${esc(label)}">
+          <svg class="icon sm"><use href="#i-more"/></svg>
+        </button>
+      </div>`;
+    }).join("");
+  }
+  async function queueSong(uri, label, option) {
+    const r = await postJSON("/queue/play_next", { uri, option });
+    if (r.ok) {
+      toast(option === "next" ? `Playing next: ${label}` : `Added to the end: ${label}`);
+      refreshQueue();
+    } else {
+      toast(r.error || "Couldn't add that song");
+    }
+  }
+  async function mixFromSong(uri, label) {
+    toast("Starting a new mix…");
+    beginDjRun();
+    if (window.matchMedia("(max-width: 699px)").matches) showTab("np");
+    const r = await postJSON("/start_radio_seed", { uri, label });
+    toast(r.ok ? `New mix from ${label}` : (r.error || "Couldn't start a new mix"));
+    refreshStatus(); refreshQueue(); refreshLog();
+  }
+  function openSongMenu(uri, label) {
+    const actions = [
+      ["Play next", "", () => queueSong(uri, label, "next")],
+      ["Add to the end of Up Next", "ghost", () => queueSong(uri, label, "add")],
+      ["Start a new mix from this song", "ghost", () => mixFromSong(uri, label)],
+    ];
+    openSheet(label, '<div class="sheet-menu"></div>',
+              [{ id: "sheetCancel", label: "Cancel", kind: "ghost", run: closeSheet }]);
+    const menu = sheetEl.querySelector(".sheet-menu");
+    for (const [text, kind, run] of actions) {
+      const b = document.createElement("button");
+      b.className = "btn " + kind;
+      b.textContent = text;
+      b.addEventListener("click", () => { closeSheet(); run(); });
+      menu.appendChild(b);
+    }
   }
   document.getElementById("searchResults").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const row = btn.closest(".trackrow");
-    const uri = row.dataset.uri;
-    if (btn.dataset.act === "radio") {
-      btn.disabled = true;
-      toast("Starting radio…");
-      beginDjRun();
-      const r = await postJSON("/start_radio_seed", { uri, label: row.dataset.label });
-      if (r.ok) {
-        toast("Radio started");
-        refreshQueue();
-        if (window.matchMedia("(max-width: 699px)").matches) showTab("queue");
-      } else {
-        toast(r.error || "Couldn't start radio");
-      }
-      btn.disabled = false;
-      return;
-    }
-    const next = btn.dataset.act === "next";
+    if (btn.dataset.act === "more") { openSongMenu(row.dataset.uri, row.dataset.label); return; }
     btn.disabled = true;
-    const r = await postJSON("/queue/play_next", { uri, option: next ? "next" : "add" });
-    if (r.ok) {
-      toast(next ? "Playing next" : "Added to queue");
-      refreshQueue();
-      if (next && window.matchMedia("(max-width: 699px)").matches) showTab("queue");
-    } else {
-      toast(r.error || "Couldn't queue");
-    }
-    btn.disabled = false;
+    try { await queueSong(row.dataset.uri, row.dataset.label, "next"); }
+    finally { btn.disabled = false; }
   });
 
   async function refreshLog() {
@@ -1252,22 +1362,36 @@
     await postJSON("/volume", { level: parseInt(volEl.value, 10) });
   });
   document.getElementById("likeBtn").addEventListener("click", async (e) => {
-    const btn = e.currentTarget; const msg = document.getElementById("likeMsg");
+    const btn = e.currentTarget;
     btn.disabled = true;
     try {
       const r = await postJSON("/like");
       if (r.ok) {
         setLiked(!!r.liked);
-        msg.textContent = (r.liked ? "♥ Liked " : "♡ Unliked ") + (r.label || "track");
-      } else { msg.textContent = r.error || "Like failed"; }
+        toast((r.liked ? "Liked " : "No longer liked: ") + (r.track || "this song"));
+      } else { toast(r.error || "Couldn't like this song"); }
     } finally { btn.disabled = false; }
   });
+  // A block lasts weeks and grows each time the same song is blocked again.
+  function blockLength(days) {
+    if (days >= 365 * 3) return "for good";
+    if (days < 14) return `for ${days} day${days === 1 ? "" : "s"}`;
+    if (days < 60) return `for ${Math.round(days / 7)} weeks`;
+    if (days < 365) return `for ${Math.round(days / 30)} months`;
+    return "for about a year";
+  }
   document.getElementById("blockBtn").addEventListener("click", async (e) => {
-    const btn = e.currentTarget; const msg = document.getElementById("likeMsg");
+    const btn = e.currentTarget;
     btn.disabled = true;
     try {
       const r = await postJSON("/block");
-      msg.textContent = r.ok ? `🚫 Blocked ${r.blocked || "track"} for 30 days` : (r.error || "Block failed");
+      if (!r.ok) { toast(r.error || "Couldn't block this song"); return; }
+      const song = r.blocked || "this song";
+      toast(`Blocked ${song} ${blockLength(r.days || 21)}`, { label: "Undo", run: async () => {
+        const u = await postJSON("/block/undo", { token: r.undo || "" });
+        toast(u.ok ? `Unblocked ${song}` : (u.error || "Couldn't undo"));
+        refreshStatus(); refreshQueue();
+      } });
     } finally { btn.disabled = false; refreshStatus(); refreshQueue(); }
   });
 
@@ -1290,49 +1414,131 @@
   async function nudgeEnergy(direction, btn) {
     btn.disabled = true;
     beginDjRun();
-    try { await postJSON("/energy", { direction }); }
+    try {
+      const r = await postJSON("/energy", { direction });
+      if (r.ok) toast(direction === "up" ? "A bit hotter from the next song" : "A bit calmer from the next song");
+      else toast(r.error || "Couldn't change the energy");
+    }
     finally { btn.disabled = false; refreshStatus(); refreshLog(); refreshQueue(); }
   }
   document.getElementById("energyUp").addEventListener("click", (e) => nudgeEnergy("up", e.currentTarget));
   document.getElementById("energyDown").addEventListener("click", (e) => nudgeEnergy("down", e.currentTarget));
 
   // ── People ──
-  function renderPeople(people) {
+  let peopleKey = "";
+  function renderPeople(list) {
+    people = list;
+    // Only redraw when something changed, so a press in progress isn't cut short.
+    const key = JSON.stringify(list);
+    if (key === peopleKey) return;
+    peopleKey = key;
     const wrap = document.getElementById("peopleBtns");
-    wrap.innerHTML = people.map(p =>
+    wrap.innerHTML = list.map(p =>
       `<button class="person${p.active ? " active" : ""}" data-slug="${esc(p.slug)}">${esc(p.name)}</button>`
     ).join("");
   }
-  document.getElementById("peopleBtns").addEventListener("click", async (e) => {
+  let people = [];
+  let longPressed = false;
+  const peopleBtns = document.getElementById("peopleBtns");
+  peopleBtns.addEventListener("click", async (e) => {
     const btn = e.target.closest(".person");
+    if (longPressed) { longPressed = false; return; }   // the long-press opened the editor
     if (!btn || btn.classList.contains("active")) return;
     btn.disabled = true;
+    beginDjRun();
     try { await postJSON("/users/select", { slug: btn.dataset.slug }); }
     finally { refreshStatus(); refreshLog(); }
   });
-  // Double-click a listener to rename (or clear the name to delete them).
-  document.getElementById("peopleBtns").addEventListener("dblclick", async (e) => {
-    const btn = e.target.closest(".person");
-    if (!btn) return;
-    const cur = btn.textContent.trim();
-    const name = prompt(`Rename "${cur}" (blank to delete):`, cur);
-    if (name === null) return;
-    const trimmed = name.trim();
-    if (!trimmed) {
-      if (confirm(`Delete listener "${cur}" and their learned taste?`)) {
-        const r = await postJSON("/users/delete", { slug: btn.dataset.slug });
-        if (!r.ok) toast(r.error || "Couldn't delete");
-        refreshStatus();
-      }
-      return;
+  // Long-press a name to edit it (the Edit button does the same).
+  (function longPress() {
+    let timer = null, x = 0, y = 0;
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    peopleBtns.addEventListener("pointerdown", (e) => {
+      const btn = e.target.closest(".person");
+      if (!btn) return;
+      longPressed = false; x = e.clientX; y = e.clientY;
+      timer = setTimeout(() => { longPressed = true; openPeopleSheet(btn.dataset.slug); }, 550);
+    });
+    peopleBtns.addEventListener("pointermove", (e) => {
+      if (timer && Math.hypot(e.clientX - x, e.clientY - y) > 10) cancel();
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(t => peopleBtns.addEventListener(t, cancel));
+    peopleBtns.addEventListener("contextmenu", (e) => { if (e.target.closest(".person")) e.preventDefault(); });
+  })();
+
+  function personRowHTML(p) {
+    const removable = people.length > 1;
+    return `<div class="sheet-person" data-row="${esc(p.slug)}">
+      <input type="text" data-slug="${esc(p.slug)}" value="${esc(p.name)}" maxlength="40"
+             aria-label="Name" autocomplete="off" enterkeyhint="done" />
+      ${removable ? `<button class="btn danger" data-remove="${esc(p.slug)}">Remove</button>` : ""}
+    </div>`;
+  }
+  function openPeopleSheet(focusSlug) {
+    openSheet("Edit listeners",
+      "<p>Change a name, or remove someone. Removing a person also removes their likes and blocks.</p>" +
+      people.map(personRowHTML).join(""),
+      [{ id: "sheetCancel", label: "Cancel", kind: "ghost", run: closeSheet },
+       { id: "sheetSave", label: "Save", run: savePeopleSheet }]);
+    const field = focusSlug && sheetEl.querySelector(`input[data-slug="${CSS.escape(focusSlug)}"]`);
+    if (field) { field.focus(); field.select(); }
+  }
+  async function savePeopleSheet() {
+    const changes = [...sheetEl.querySelectorAll("input[data-slug]")]
+      .map(f => ({ slug: f.dataset.slug, name: f.value.trim() }))
+      .filter(c => c.name && c.name !== (people.find(p => p.slug === c.slug) || {}).name);
+    closeSheet();
+    for (const c of changes) {
+      const r = await postJSON("/users/rename", c);
+      if (!r.ok) toast(r.error || "Couldn't rename " + c.name);
     }
-    if (trimmed !== cur) { await postJSON("/users/rename", { slug: btn.dataset.slug, name: trimmed }); refreshStatus(); }
-  });
-  document.getElementById("addPerson").addEventListener("click", async () => {
-    const name = (prompt("Add a person (name):") || "").trim();
-    if (!name) return;
-    await postJSON("/users/add", { name });
+    if (changes.length) toast(changes.length === 1 ? `Renamed to ${changes[0].name}` : "Names saved");
     refreshStatus();
+  }
+  // Remove asks once more inside the sheet, then acts.
+  sheetEl.addEventListener("click", async (e) => {
+    const remove = e.target.closest("[data-remove]");
+    const keep = e.target.closest("[data-keep]");
+    const sure = e.target.closest("[data-sure]");
+    if (remove) {
+      const slug = remove.dataset.remove;
+      const p = people.find(x => x.slug === slug) || { name: slug };
+      remove.closest(".sheet-person").innerHTML = `<div class="confirm"><span>Remove ${esc(p.name)}?</span>
+        <button class="btn danger" data-sure="${esc(slug)}">Remove</button>
+        <button class="btn ghost" data-keep="${esc(slug)}">Keep</button></div>`;
+    } else if (keep) {
+      const p = people.find(x => x.slug === keep.dataset.keep);
+      if (p) keep.closest(".sheet-person").outerHTML = personRowHTML(p);
+    } else if (sure) {
+      sure.disabled = true;
+      const r = await postJSON("/users/delete", { slug: sure.dataset.sure });
+      if (!r.ok) { toast(r.error || "Couldn't remove that person"); return; }
+      people = people.filter(x => x.slug !== sure.dataset.sure);
+      sure.closest(".sheet-person").remove();
+      sheetEl.querySelectorAll("[data-remove]").forEach(b => { if (people.length < 2) b.remove(); });
+      refreshStatus();
+    }
+  });
+  sheetEl.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.target.tagName !== "INPUT") return;
+    const save = document.getElementById("sheetSave") || document.getElementById("sheetAdd");
+    if (save) { e.preventDefault(); save.click(); }
+  });
+  document.getElementById("editPeople").addEventListener("click", () => openPeopleSheet());
+  document.getElementById("addPerson").addEventListener("click", () => {
+    openSheet("Add a listener",
+      '<p>Each person gets their own likes and blocks. Any name or nickname works.</p>' +
+      '<input type="text" id="newPersonName" maxlength="40" placeholder="Name" aria-label="Name" ' +
+      'autocomplete="off" enterkeyhint="done" />',
+      [{ id: "sheetCancel", label: "Cancel", kind: "ghost", run: closeSheet },
+       { id: "sheetAdd", label: "Add", run: async () => {
+          const name = document.getElementById("newPersonName").value.trim();
+          if (!name) { document.getElementById("newPersonName").focus(); return; }
+          closeSheet();
+          const r = await postJSON("/users/add", { name });
+          toast(r.ok ? `Added ${name}` : (r.error || "Couldn't add that person"));
+          refreshStatus();
+        } }]);
   });
 
   // ── Players / radio ──

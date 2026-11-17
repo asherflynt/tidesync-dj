@@ -545,6 +545,23 @@ class Library:
             self.db.execute("UPDATE tracks SET last_played=? WHERE id=?", (now, track_id))
         self.db.commit()
 
+    def feedback(self, track_id: int) -> dict[str, int] | None:
+        """A track's play/skip counts, or ``None`` if it was never played or skipped."""
+        row = self.db.execute("SELECT plays, skips, last_skip FROM feedback WHERE track_id=?",
+                              (track_id,)).fetchone()
+        return dict(row) if row else None
+
+    def restore_feedback(self, track_id: int, saved: dict[str, int] | None) -> None:
+        """Put back counts read earlier with :meth:`feedback` (undoing a recorded skip)."""
+        if saved is None:
+            self.db.execute("DELETE FROM feedback WHERE track_id=?", (track_id,))
+        else:
+            self.db.execute(
+                "INSERT OR REPLACE INTO feedback(track_id, plays, skips, last_skip) VALUES(?,?,?,?)",
+                (track_id, saved["plays"], saved["skips"], saved["last_skip"]),
+            )
+        self.db.commit()
+
     def skip_penalties(self, ids: Iterable[int]) -> dict[int, float]:
         """Relevance penalty (0..0.6) per track from its skip history.
 

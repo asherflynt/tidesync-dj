@@ -183,6 +183,7 @@ class Run:
         self.tap("#blockBtn")
         self.wait("document.getElementById('toast').classList.contains('show') && "
                   "!document.getElementById('toastAction').hidden")
+        self.page.wait_for_timeout(350)  # let the toast finish fading in
         self.audit("blocked-toast")
         assert self.h.get("status")["now_playing"] != playing
         blocked = [p for p in self.h.get("users")["people"] if p["active"]]

@@ -109,6 +109,10 @@ class UserRenameBody(BaseModel):
     name: str
 
 
+class UndoBlockBody(BaseModel):
+    token: str = ""
+
+
 class SeedRadioBody(BaseModel):
     uri: str
     label: str = ""
@@ -289,6 +293,12 @@ async def like(request: Request):
 async def block(request: Request):
     result = await _engine(request).block_current()
     return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
+@app.post("/block/undo")
+async def undo_block(request: Request, body: UndoBlockBody):
+    result = await _engine(request).undo_block(body.token)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
 
 @app.post("/nudge")

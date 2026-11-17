@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import json
 import logging
+import secrets
 import time
 from collections import deque
 from datetime import datetime
@@ -43,6 +45,7 @@ COVERAGE_MESSAGES = {
     "error": "Music Assistant did not report its analysis progress.",
 }
 SKIP_FRACTION = 0.5  # stopped before this share of the track = a skip
+UNDO_WINDOW = 300  # seconds during which a block can be undone
 
 
 def _artist(media: dict[str, Any]) -> str:
@@ -144,6 +147,7 @@ class DJEngine:
         self._ma_index: dict[str, Any] | None = None
         self._last_error: str | None = None
         self._last_feedback: tuple[str, float] = ("", 0.0)
+        self._last_block: dict[str, Any] | None = None  # what undo_block puts back
         self._ha_vibe_seen: str | None = None
 
     # -- lifecycle ----------------------------------------------------------
@@ -848,15 +852,69 @@ class DJEngine:
         return {"ok": True, "liked": True, "track": label}
 
     async def block_current(self) -> dict[str, Any]:
-        uri, label, media = await self._current()
+        """Block the current track for the active listener and skip it.
+
+        Everything the block changes is remembered so :meth:`undo_block` can put
+        it back exactly; the reply carries the token for that and the cooldown.
+        """
+        queue = await self._queue()
+        item = queue.get("current_item") or {}
+        media = item.get("media_item") or {}
+        uri, label = media.get("uri"), _label(item)
         if not uri:
             return {"ok": False, "error": "Nothing is playing."}
         person = self._users.active
+        track_id = self._lib.id_for_uri(uri)
+        saved = {
+            "token": secrets.token_urlsafe(8), "at": time.monotonic(), "slug": person.slug,
+            "blocks": copy.deepcopy(person.blocks), "track_id": track_id, "label": label,
+            "feedback": self._lib.feedback(track_id) if track_id is not None else None,
+            "queue_item_id": item.get("queue_item_id"),
+        }
+        skips = self.stats["skips"]
         person.add_block(label, uri)
         self._users.save(person)
         self._record_feedback(media, skipped=True)
+        saved["skip_counted"] = self.stats["skips"] > skips
+        self._last_block = saved
         await self._ma.try_cmd("player_queues/next", queue_id=self.player_id)
-        return {"ok": True, "blocked": label}
+        block = next(b for b in person.blocks if b.uri == uri)
+        days = round((datetime.fromisoformat(block.expires).timestamp() - time.time()) / 86400)
+        return {"ok": True, "blocked": label, "days": max(1, days), "undo": saved["token"]}
+
+    async def undo_block(self, token: str = "") -> dict[str, Any]:
+        """Undo the last block: the listener's blocks, the recorded skip, and the track itself.
+
+        :param token: the ``undo`` value from :meth:`block_current`; empty means
+            the most recent block. Only the latest block can be undone, within
+            ``UNDO_WINDOW`` seconds.
+        """
+        saved = self._last_block
+        if (not saved or (token and token != saved["token"])
+                or time.monotonic() - saved["at"] > UNDO_WINDOW):
+            return {"ok": False, "error": "There is nothing to undo."}
+        self._last_block = None
+        person = self._users.get(saved["slug"])
+        if person is not None:
+            person.blocks = saved["blocks"]
+            self._users.save(person)
+        if saved["skip_counted"] and saved["track_id"] is not None:
+            self._lib.restore_feedback(saved["track_id"], saved["feedback"])
+            self.stats["skips"] = max(0, self.stats["skips"] - 1)
+        # bring the song back if it is still in the queue and not already playing
+        resumed = False
+        item_id = saved["queue_item_id"]
+        if item_id and self.player_id:
+            queue = await self._queue()
+            if (queue.get("current_item") or {}).get("queue_item_id") == item_id:
+                resumed = True
+            else:
+                try:
+                    await self._ma.cmd("player_queues/play_index", queue_id=self.player_id, index=item_id)
+                    resumed = True
+                except (MAError, MAUnavailable) as err:
+                    _LOGGER.info("Unblocked %s but could not play it again: %s", saved["label"], err)
+        return {"ok": True, "unblocked": saved["label"], "resumed": resumed}
 
     def list_users(self) -> list[dict[str, Any]]:
         return self._users.people()

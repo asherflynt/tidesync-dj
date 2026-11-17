@@ -80,12 +80,6 @@ class HarnessMA(FakeMA):
         if command == "player_queues/previous":
             self.index = max((self.index or 0) - 1, 0)
             return None
-        if command == "player_queues/play_index":
-            index = args["index"]
-            if isinstance(index, str):
-                index = next(i for i, it in enumerate(self.queue) if it["queue_item_id"] == index)
-            self.index, self.state = int(index), "playing"
-            return None
         if command == "player_queues/delete_item":
             self.queue = [it for it in self.queue if it["queue_item_id"] != args["item_id_or_index"]]
             return None
