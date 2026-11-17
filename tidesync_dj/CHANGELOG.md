@@ -1,5 +1,71 @@
 # Changelog
 
+## 2.1.0
+
+A simpler dashboard for phones and tablets, and far more songs to choose from
+while Music Assistant is still analysing a large library.
+
+### Changed
+
+- **Many more songs to choose from.** The DJ used to pick only from tracks in
+  Music Assistant's sound index (35 of about 1,600 analysed on one library). It
+  now finds every track Music Assistant has measured, following its background
+  scan through each music folder, and catches up within minutes when thousands
+  of results arrive at once.
+- **Vibes reach the whole ready library.** Sound searches are topped up with
+  ready tracks outside the sound index, chosen by energy and by similar tracks.
+- **Energy from tempo.** A track with a tempo but no sound-based energy gets an
+  estimate from its tempo, replaced when a better value arrives.
+- **Three tabs on phones:** Now Playing, Up Next (with search at the top) and
+  Settings. Tablets keep two columns and laptops three.
+- **Start from Now Playing.** When the DJ is stopped, Now Playing shows one
+  "Start the music" button and a "Playing in" speaker choice, instead of a
+  "Stopped" screen with controls that did nothing. Stop sits next to the
+  speaker while music plays.
+- **No pop-up on every start.** A progress banner on Now Playing replaces the
+  "What the DJ is doing" window opening by itself on each start and top-up. The
+  window still opens from "What's the DJ doing?" or the banner's Details.
+- **Plainer words.** "Try something different" (was Nudge DJ), "Why these songs"
+  (was DJ Decision Log), "What the DJ knows about each listener" (was Learned
+  taste profiles), and Calmer/Hotter on the energy buttons. The model name moved
+  from the header to Settings > Advanced. The playlist text no longer talks
+  about exporting to a music service.
+- **Like and Block are apart.** They sit at opposite ends of the controls, with
+  play/pause in the middle.
+- **Bigger touch targets and text.** Every button and field is at least 44 px,
+  fields use 16 px text so iPhones don't zoom in on them, and no text is smaller
+  than 13 px.
+
+### Added
+
+- **"Getting your library ready" card** on Now Playing: how many songs are ready
+  out of the whole library, a progress bar, and roughly how long the rest will
+  take ("about 4 months"). The DJ only picks from ready songs. The card can be
+  hidden for the session and goes away when the library is done.
+- **Analysis progress.** `/status` reports Music Assistant's own progress for
+  each kind of analysis, with a rate and time left worked out from readings kept
+  across restarts. There is no estimate until about a day of readings, because
+  Music Assistant analyses in a nightly job. Without an admin token this is
+  skipped quietly (logged once) and everything else keeps working.
+- **One-tap vibes:** Focus, Workout, Dinner, Wind down, Party and Sleep. Your own
+  words still work, and a vibe starts the music if it is stopped.
+- **Undo for blocks.** The message after a block has an Undo button (new
+  `POST /block/undo`). It puts the listener's blocks back exactly as they were,
+  removes the recorded skip and plays the song again.
+- **Edit listeners in the app.** Edit (or pressing and holding a name) opens a
+  small sheet to rename or remove people, and Add opens one to add a person.
+  These replace browser pop-ups that did not work on phones.
+- **One-tap search results.** Tapping a result plays it next; its menu adds it
+  to the end of Up Next or starts a new mix from it.
+
+### Fixed
+
+- The block message said "30 days". A first block lasts three weeks and gets
+  longer each time; the message now says how long.
+- The like message said "track" instead of the song's name.
+- Removed the "No Anthropic API key" banner left over from 1.x (Claude has been
+  optional since 2.0.0).
+
 ## 2.0.1
 
 ### Fixed

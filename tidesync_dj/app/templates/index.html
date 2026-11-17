@@ -1140,11 +1140,11 @@
     }
     el.innerHTML = queueItems.map(t => `
       <div class="trackrow" data-item-id="${esc(t.item_id)}" data-qindex="${t.qindex}">
-        <span class="drag-handle" title="Drag to reorder"><svg class="icon sm"><use href="#i-drag"/></svg></span>
+        <span class="drag-handle" title="Drag to reorder" aria-hidden="true"><svg class="icon sm"><use href="#i-drag"/></svg></span>
         ${thumbHTML(t.image)}
         ${trackText(t)}
         <div class="rowactions">
-          <button class="rowbtn remove" data-act="remove" title="Remove from queue">
+          <button class="rowbtn remove" data-act="remove" title="Remove" aria-label="Remove ${esc(t.name || "song")} from Up Next">
             <svg class="icon sm"><use href="#i-close"/></svg>
           </button>
         </div>
@@ -1258,7 +1258,11 @@
     searchInput.focus();
   });
   searchInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { clearTimeout(searchTimer); runSearch(searchInput.value.trim()); }
+    if (e.key === "Enter") {
+      clearTimeout(searchTimer);
+      runSearch(searchInput.value.trim());
+      searchInput.blur();   // put the phone keyboard away so the results show
+    }
   });
   async function runSearch(q) {
     if (!q) return;

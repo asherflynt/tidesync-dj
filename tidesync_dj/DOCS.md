@@ -23,10 +23,30 @@ pick is a real track in your library.
 
 Only analysed tracks are played. A track counts as analysed as soon as Music
 Assistant has measured its tempo or key, whether or not the sound index has it
-yet. The dashboard's "What the DJ is doing" view shows how many of your tracks
-are ready and how many a vibe can match by sound. With an admin token it also
-shows Music Assistant's own progress, with an estimate of the time left once it
-has watched the nightly analysis for about a day.
+yet. While the library is being analysed, a "Getting your library ready" card on
+Now Playing shows how many songs are ready. With an admin token it also says
+roughly how long the rest will take, once it has watched Music Assistant's
+nightly analysis for about a day. The "What the DJ is doing" view also shows how
+many songs a vibe can match by sound.
+
+## Using the dashboard
+
+On a phone there are three tabs:
+
+- **Now Playing**: **Start the music** and the speaker it plays in; the current
+  song with Like, Previous, Play/Pause, Skip and Block; one-tap vibes (Focus,
+  Workout, Dinner, Wind down, Party, Sleep) or your own words; **Calmer** and
+  **Hotter**; **Try something different**; and who is listening.
+- **Up Next**: what is queued, with search at the top. Tap a search result to
+  play it next; its menu (the dots) adds it to the end or starts a new mix from
+  it. Drag the handle to reorder, or remove a song.
+- **Settings**: the speaker, session stats, **Why these songs**, and Advanced
+  (save the session as a playlist, what the DJ knows about each listener, and
+  how vibes are read).
+
+Tablets show Now Playing beside Up Next and Settings; laptops show all three
+side by side. While the DJ is choosing songs, a banner on Now Playing shows its
+progress; **Details** or **What's the DJ doing?** opens the full view.
 
 ## Requirements in Music Assistant
 
@@ -78,9 +98,13 @@ sound and an energy shape. Claude never chooses tracks.
 ## People, likes and blocks
 
 Each listener has their own likes and blocks. A like also marks the track as a
-favourite in Music Assistant. A block skips the track and keeps it out for a
-cooldown that grows each time it is blocked again. Skipped tracks are ranked
-lower for about two months.
+favourite in Music Assistant. A block skips the track and keeps it out for three
+weeks, longer each time it is blocked again. The message after a block has an
+**Undo** button that puts everything back and plays the song again. Skipped
+tracks are ranked lower for about two months.
+
+Tap **Add** to add a listener, and **Edit** (or press and hold a name) to rename
+or remove one. Names are just labels.
 
 ## HTTP API
 
@@ -88,5 +112,5 @@ lower for about two months.
 `GET /history`, `GET /users`, `POST /vibe`, `POST /start_radio`,
 `POST /start_radio_seed`, `POST /stop`, `POST /playpause`, `POST /skip`,
 `POST /previous`, `POST /nudge`, `POST /energy`, `POST /like`, `POST /block`,
-`POST /volume`, `POST /players/select`, `POST /save_playlist`,
+`POST /block/undo`, `POST /volume`, `POST /players/select`, `POST /save_playlist`,
 `POST /queue/play_next`, `POST /queue/remove`, `POST /queue/move`.

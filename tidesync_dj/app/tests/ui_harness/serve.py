@@ -17,6 +17,7 @@ with ``{"library": NAME}`` switches the library readiness shown in /status:
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import tempfile
 import time
@@ -138,6 +139,7 @@ async def lifespan(app):
     yield
     await app.state.http.aclose()
     lib.close()
+    shutil.rmtree(data, ignore_errors=True)
 
 
 @main.app.post("/__harness/scenario")
