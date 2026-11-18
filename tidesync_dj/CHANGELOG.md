@@ -16,6 +16,10 @@ while Music Assistant is still analysing a large library.
   ready tracks outside the sound index, chosen by energy and by similar tracks.
 - **Energy from tempo.** A track with a tempo but no sound-based energy gets an
   estimate from its tempo, replaced when a better value arrives.
+- **An honest time estimate.** The "time to go" follows Music Assistant's own
+  pace. Results copied in all at once count as ready but do not make the
+  estimate look days long, and nothing is estimated before a day of readings
+  (Music Assistant analyses in a nightly job).
 - **Three tabs on phones:** Now Playing, Up Next (with search at the top) and
   Settings. Tablets keep two columns and laptops three.
 - **Start from Now Playing.** When the DJ is stopped, Now Playing shows one
