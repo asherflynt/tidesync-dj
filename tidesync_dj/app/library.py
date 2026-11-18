@@ -639,7 +639,7 @@ class Library:
         _LOGGER.info("Library listing synced: %d tracks, %d removed", total, removed)
         return {"tracks": total, "removed": removed}
 
-    async def sync_analysed(self, ma: MAClient) -> dict[str, int]:
+    async def sync_analysed(self, ma: MAClient, rebuild: bool = True) -> dict[str, int]:
         """Mark tracks in the sound (CLAP) index and derive an energy value (1-10) for each.
 
         Scores every indexed track against a high-energy and a low-energy phrase
@@ -649,7 +649,8 @@ class Library:
         """
         # Refresh MA's in-memory USearch/CLAP indexes from SQLite first so newly
         # analysed tracks are visible even when MA's background task queue is busy.
-        await ma.try_cmd("sonic_similarity/rebuild_index", timeout=120)
+        if rebuild:
+            await ma.try_cmd("sonic_similarity/rebuild_index", timeout=120)
         try:
             high = await ma.cmd("sonic_similarity/text_search", query=ENERGY_HIGH, limit=1_000_000, timeout=300)
             low = await ma.cmd("sonic_similarity/text_search", query=ENERGY_LOW, limit=1_000_000, timeout=300)

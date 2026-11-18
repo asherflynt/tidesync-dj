@@ -34,6 +34,7 @@ OPENING = 10  # tracks queued when a session starts
 CANDIDATE_CAP = 400  # best candidates handed to the sequencer
 LISTING_SYNC_EVERY = 6 * 3600
 ANALYSIS_SYNC_EVERY = 30 * 60
+REBUILD_MIN_GAP = 6 * 3600  # a forced rebuild of MA's sound index is costly on a big library
 CATCH_UP_EVERY = 90  # next sync pass when the last one was cut short with tracks still turning up
 COVERAGE_RETRY = 6 * 3600  # re-ask for MA's coverage this often after it was refused
 SCAN_TASK_ID = "audio_analysis_background_scan"
@@ -145,6 +146,7 @@ class DJEngine:
         self._coverage_logged: set[tuple[str, str]] = set()
         self._coverage_skip_until: dict[str, float] = {}  # domain -> monotonic time to ask again
         self._ma_index: dict[str, Any] | None = None
+        self._last_rebuild = float("-inf")
         self._last_error: str | None = None
         self._last_feedback: tuple[str, float] = ("", 0.0)
         self._last_block: dict[str, Any] | None = None  # what undo_block puts back
@@ -202,7 +204,10 @@ class DJEngine:
                     last_listing = time.monotonic()
                 if time.monotonic() - last_index >= ANALYSIS_SYNC_EVERY:
                     self._sync_status = {"state": "sound index"}
-                    await self._lib.sync_analysed(self._ma)
+                    rebuild = self._index_behind() and time.monotonic() - self._last_rebuild >= REBUILD_MIN_GAP
+                    await self._lib.sync_analysed(self._ma, rebuild=rebuild)
+                    if rebuild:
+                        self._last_rebuild = time.monotonic()
                     self._ma_index = await self._read_ma_index()
                     last_index = time.monotonic()
                 self._sync_status = {"state": "analysis"}
@@ -219,6 +224,12 @@ class DJEngine:
                 _LOGGER.exception("Library sync crashed")
                 self._sync_status = {"state": "error", "error": "unexpected error (see log)"}
             await asyncio.sleep(CATCH_UP_EVERY if more else ANALYSIS_SYNC_EVERY)
+
+    def _index_behind(self) -> bool:
+        """MA's sound index holds fewer tracks than it has analysed (its own refresh is late)."""
+        size = (self._ma_index or {}).get("sound_index_size")
+        analysed = self._coverage_view().get("analysed")
+        return isinstance(size, int) and isinstance(analysed, int) and size < analysed
 
     async def _read_ma_index(self) -> dict[str, Any] | None:
         """Sizes of MA's two sound indexes (sonic_similarity/status, any user may read it)."""

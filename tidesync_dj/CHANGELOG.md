@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.1
+
+### Fixed
+
+- **No more full sound-index rebuild every half hour.** 2.0.2 asked Music
+  Assistant to rebuild its sound index before every library sync. That is cheap
+  on a few thousand songs but heavy on a large analysed library. It now asks only
+  when the index holds fewer songs than Music Assistant has analysed, and at most
+  every 6 hours; Music Assistant's own hourly refresh does the rest.
+
 ## 2.1.0
 
 A simpler dashboard for phones and tablets, and far more songs to choose from
