@@ -419,7 +419,8 @@ def _coverage_calls(ma):
 
 async def test_coverage_without_admin_degrades_gracefully(rig, caplog):
     engine, ma, _ = rig
-    denied = MAError("audio_analysis/coverage", 21, "This command requires the system:manage scope")
+    # what MA 2.10.12 actually sends: the code plus translated details
+    denied = MAError("audio_analysis/coverage", 22, "You do not have permission to perform this action.")
     _patch_coverage(ma, lambda domain: denied)
     with caplog.at_level("INFO", logger="tidesync.engine"):
         await engine._read_coverage()
@@ -451,7 +452,7 @@ async def test_coverage_is_recorded_and_reported(rig):
 
 async def test_coverage_for_a_disabled_provider_is_per_domain(rig):
     engine, ma, _ = rig
-    _patch_coverage(ma, lambda domain: MAError("x", 1, "smart_fades is not available")
+    _patch_coverage(ma, lambda domain: MAError("x", 1, "The provider is currently unavailable.")
                     if domain == "smart_fades" else {"analyzed": 10, "pending": 5})
     await engine._read_coverage()
     coverage = (await engine.status())["library"]["ma_coverage"]
@@ -472,9 +473,30 @@ def test_coarse_durations():
 
 
 def test_ma_error_kinds():
-    assert MAError("x", 8, "Invalid command: sonic_similarity/text_search").unsupported
-    assert MAError("x", 21, "This command requires the system:manage scope").not_permitted
-    assert not MAError("x", 1, "smart_fades is not available").not_permitted
+    # by code: MA translates ``details`` on the wire, so the code is what counts
+    assert MAError("x", 12, "Invalid or unsupported command.").unsupported
+    assert MAError("x", 22, "You do not have permission to perform this action.").not_permitted
+    assert MAError("x", 20, "Authentication is required.").not_permitted
+    assert MAError("x", 1, "The provider is currently unavailable.").provider_unavailable
+    assert not MAError("x", 1, "The provider is currently unavailable.").not_permitted
+    assert not MAError("x", 22, "anything").provider_unavailable
+    # by text, for servers that send no useful code
+    assert MAError("x", 999, "Invalid command: sonic_similarity/text_search").unsupported
+    assert MAError("x", 999, "This command requires the system:manage scope").not_permitted
+    assert MAError("x", None, "smart_fades is not available").provider_unavailable
+
+
+async def test_coverage_marks_every_domain_when_ma_is_down(rig):
+    from ma import MAUnavailable
+    engine, ma, _ = rig
+    _patch_coverage(ma, lambda domain: {"analyzed": 10, "pending": 5})
+    await engine._read_coverage()
+    assert engine._coverage_errors == {}
+    _patch_coverage(ma, lambda domain: MAUnavailable("not connected"))
+    await engine._read_coverage()
+    assert engine._coverage_errors == {"sonic_analysis": "error", "smart_fades": "error"}
+    coverage = (await engine.status())["library"]["ma_coverage"]
+    assert coverage["available"] is False and coverage["eta_seconds"] is None
 
 
 async def test_sync_pass_uses_ma_count_and_catches_up_quickly(rig, monkeypatch):

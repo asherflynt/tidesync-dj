@@ -249,7 +249,9 @@ class DJEngine:
             try:
                 reply = await self._ma.cmd("audio_analysis/coverage", aa_domain=domain)
             except MAUnavailable as err:
-                self._coverage_failed(domain, "error", str(err))
+                # no reading this pass for any domain, so none may look live
+                for each in COVERAGE_DOMAINS:
+                    self._coverage_failed(each, "error", str(err), quiet=each != domain)
                 return
             except MAError as err:
                 if err.not_permitted or err.unsupported:
@@ -259,7 +261,7 @@ class DJEngine:
                         self._coverage_failed(each, reason, err.details, quiet=each != domain)
                         self._coverage_skip_until[each] = time.monotonic() + COVERAGE_RETRY
                     return
-                reason = "not_enabled" if "not available" in err.details.lower() else "error"
+                reason = "not_enabled" if err.provider_unavailable else "error"
                 self._coverage_failed(domain, reason, err.details)
                 if reason == "not_enabled":
                     self._coverage_skip_until[domain] = time.monotonic() + COVERAGE_RETRY

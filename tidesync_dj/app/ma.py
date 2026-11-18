@@ -22,6 +22,16 @@ _LOGGER = logging.getLogger("tidesync.ma")
 EventListener = Callable[[str, dict[str, Any]], Awaitable[None] | None]
 
 
+# Music Assistant error codes (music_assistant_models.errors, checked on 2.10.12).
+# Prefer these over ``details``: MA translates ``details`` before sending it, so
+# the wording on the wire is not the wording in its source or its own log.
+ERR_PROVIDER_UNAVAILABLE = 1
+ERR_INVALID_COMMAND = 12
+ERR_AUTHENTICATION_REQUIRED = 20
+ERR_INSUFFICIENT_PERMISSIONS = 22
+ERR_INVALID_TOKEN = 23
+
+
 class MAError(RuntimeError):
     """A command was rejected by Music Assistant."""
 
@@ -31,21 +41,44 @@ class MAError(RuntimeError):
         self.code = code
         self.details = details
 
+    def _code_is(self, *codes: int) -> bool:
+        try:
+            return int(self.code) in codes
+        except (TypeError, ValueError):
+            return False
+
     @property
     def unsupported(self) -> bool:
         """True when the server does not know the command (provider off / older MA).
 
-        Music Assistant 2.10 answers "Invalid command: <name>"; older servers
-        said "unsupported command".
+        Music Assistant 2.10 answers "Invalid command: <name>" (or its translation,
+        "Invalid or unsupported command."); older servers said "unsupported command".
         """
+        if self._code_is(ERR_INVALID_COMMAND):
+            return True
         details = self.details.lower()
         return "unsupported command" in details or "invalid command" in details
 
     @property
     def not_permitted(self) -> bool:
         """True when the token lacks the scope the command needs (e.g. admin-only)."""
+        if self._code_is(ERR_INSUFFICIENT_PERMISSIONS, ERR_AUTHENTICATION_REQUIRED, ERR_INVALID_TOKEN):
+            return True
         details = self.details.lower()
-        return ("requires the" in details and "scope" in details) or "authentication required" in details
+        return (
+            ("requires the" in details and "scope" in details)
+            or "authentication required" in details
+            or "authentication is required" in details
+            or "do not have permission" in details
+        )
+
+    @property
+    def provider_unavailable(self) -> bool:
+        """True when the provider the command needs is not loaded (e.g. turned off)."""
+        if self._code_is(ERR_PROVIDER_UNAVAILABLE):
+            return True
+        details = self.details.lower()
+        return "not available" in details or "currently unavailable" in details
 
 
 class MAUnavailable(RuntimeError):

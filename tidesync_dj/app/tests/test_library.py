@@ -320,6 +320,51 @@ def test_rate_and_eta_follow_the_nightly_pattern(lib):
     assert lib.coverage_progress(DOMAIN, now=last)["rate_per_hour"] == pytest.approx(daily / 21, rel=0.02)
 
 
+def test_a_bulk_import_does_not_count_as_mas_pace(lib):
+    daily = 87 * 4
+    last = _nightly(lib, 30)
+    calm = lib.coverage_progress(DOMAIN, now=last)
+    # 50k results copied in while TideSync could not reach MA (40 minutes)
+    jump_at = last + 2400
+    before = lib.coverage_samples(DOMAIN)[-1]["analysed"]
+    lib.record_coverage(DOMAIN, before + 50_000, 270_000 - before - 50_000, now=jump_at)
+    assert lib.coverage_samples(DOMAIN)[-1]["step"] == 50_000
+    progress = lib.coverage_progress(DOMAIN, now=jump_at)
+    assert progress["analysed"] == before + 50_000  # it does count as ready
+    assert progress["rate_per_hour"] == pytest.approx(calm["rate_per_hour"], rel=0.05)
+    assert progress["rate_per_hour"] == pytest.approx(daily / 24, rel=0.05)
+    # the ETA shrinks only because less is pending, not because MA looks faster
+    assert progress["eta_seconds"] == pytest.approx(progress["pending"] / (daily / 86400), rel=0.05)
+
+
+def test_a_step_survives_a_replaced_reading(lib):
+    last = _nightly(lib, 30)
+    before = lib.coverage_samples(DOMAIN)[-1]["analysed"]
+    lib.record_coverage(DOMAIN, before + 20_000, 200_000, now=last + 100)
+    count = len(lib.coverage_samples(DOMAIN))
+    lib.record_coverage(DOMAIN, before + 20_010, 199_990, now=last + 500)  # within the gap: replaces it
+    samples = lib.coverage_samples(DOMAIN)
+    assert len(samples) == count
+    assert samples[-1]["analysed"] == before + 20_010 and samples[-1]["step"] == 20_000
+
+
+def test_a_fast_ma_is_not_mistaken_for_an_import(lib):
+    # e.g. MA on a strong machine with keep_analysis_running: ~1,100 tracks/hour all day
+    for i in range(0, 30 * 6 + 1):
+        t = T0 + i * 600
+        lib.record_coverage(DOMAIN, 1000 + i * 183, 270_000 - i * 183, now=t)
+    assert not any(s.get("step") for s in lib.coverage_samples(DOMAIN))
+    assert lib.coverage_progress(DOMAIN, now=T0 + 180 * 600)["rate_per_hour"] == pytest.approx(1098, rel=0.02)
+
+
+def test_a_long_gap_with_normal_progress_is_not_an_import(lib):
+    last = _nightly(lib, 30)
+    before = lib.coverage_samples(DOMAIN)[-1]["analysed"]
+    # TideSync was off for two days while MA analysed two nights' worth
+    lib.record_coverage(DOMAIN, before + 2 * 87 * 4, 260_000, now=last + 2 * 86400)
+    assert not lib.coverage_samples(DOMAIN)[-1].get("step")
+
+
 def test_eta_counts_down_between_samples(lib):
     last = _nightly(lib, 30)
     fresh = lib.coverage_progress(DOMAIN, now=last)["eta_seconds"]

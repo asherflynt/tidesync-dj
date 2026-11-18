@@ -70,6 +70,7 @@ FRONTIER_PAGE = 250  # mappings read from the mirror per query during a walk
 MAX_ANCHORS = 6  # per provider
 ANCHOR_IDLE = 7 * 86400  # an extra anchor with no hit for this long is dropped
 PROBE_COUNT = 60  # random lookups per provider when MA reports tracks we have not found
+PROBE_WINDOW = 500  # most unmeasured tracks one random seek may look through
 PLAYED_BUDGET = 100
 SWEEP_BUDGET = 200  # backstop lookups per pass
 KNOWN_RETRY = 86400  # sound-index tracks without a tempo are re-checked daily
@@ -83,6 +84,12 @@ COVERAGE_KEEP = 8 * 86400
 DAY = 86400
 ETA_MIN_SPAN = 20 * 3600  # MA's scan is a nightly job: no ETA before ~a day of samples
 RATE_MAX_DAYS = 3  # the rate is averaged over the last 1-3 whole days
+# A reading that gains far more than MA could analyse in the time since the last one
+# is a bulk import of analysis results (e.g. copied in from a faster machine). It
+# counts as ready but not as MA's own pace, or the ETA would look days long.
+STEP_MIN_GAIN = 1000  # never a step below this many tracks in one interval
+STEP_RATE_FACTOR = 10  # ...and only when faster than this many times the quickest pace seen
+STEP_FLOOR_RATE = 300  # tracks/hour assumed as the quickest pace before any is seen
 
 
 def is_scanned_provider(provider: str) -> bool:
@@ -253,17 +260,46 @@ class Library:
             return []
         return [s for s in samples if isinstance(s, dict) and {"t", "analysed", "pending"} <= s.keys()]
 
+    @staticmethod
+    def _peak_rate(samples: list[dict[str, int]]) -> float:
+        """Quickest pace (tracks/hour) MA itself showed between stored samples."""
+        peak = 0.0
+        for a, b in zip(samples, samples[1:]):
+            dt = b["t"] - a["t"]
+            if dt >= COVERAGE_MIN_GAP:
+                peak = max(peak, (b["analysed"] - a["analysed"] - b.get("step", 0)) * 3600 / dt)
+        return peak
+
     def record_coverage(self, domain: str, analysed: int, pending: int, now: int | None = None) -> None:
-        """Remember one reading of MA's analysed/pending counts (kept across restarts)."""
+        """Remember one reading of MA's analysed/pending counts (kept across restarts).
+
+        A gain too large for the time since the previous reading is stored as
+        that sample's ``step`` (a bulk import), which the rate leaves out.
+        """
         now = int(now if now is not None else time.time())
         analysed, pending = int(analysed or 0), int(pending or 0)
         samples = [s for s in self.coverage_samples(domain) if now - COVERAGE_KEEP < s["t"] <= now]
         if samples and analysed < samples[-1]["analysed"] * 0.9 - 10:
             samples = []  # MA's analysis data was reset: earlier readings no longer apply
+        step = 0
+        if samples:
+            prev = samples[-1]
+            gain = analysed - prev["analysed"]
+            per_hour = gain * 3600 / max(1, now - prev["t"])
+            limit = STEP_RATE_FACTOR * max(STEP_FLOOR_RATE, self._peak_rate(samples))
+            if gain >= STEP_MIN_GAIN and per_hour > limit:
+                step = gain
+                _LOGGER.info("Analysis count for %s jumped by %d at once; treating it as an import, "
+                             "not as Music Assistant's own pace", domain, gain)
         sample = {"t": now, "analysed": analysed, "pending": pending}
         if len(samples) >= 2 and now - samples[-2]["t"] < COVERAGE_MIN_GAP:
+            step += samples[-1].get("step", 0)  # the reading it replaces may hold a step too
+            if step:
+                sample["step"] = step
             samples[-1] = sample  # keep the newest reading without storing one per poll
         else:
+            if step:
+                sample["step"] = step
             samples.append(sample)
         self.set_meta(f"coverage:{domain}", json.dumps(samples, separators=(",", ":")))
         self.db.commit()
@@ -300,7 +336,8 @@ class Library:
         elif span >= ETA_MIN_SPAN:
             base = first
         if base is not None:
-            gained = latest["analysed"] - base["analysed"]
+            imported = sum(s.get("step", 0) for s in samples if base["t"] < s["t"] <= latest["t"])
+            gained = latest["analysed"] - base["analysed"] - imported
             if gained > 0:
                 per_second = gained / (latest["t"] - base["t"])
                 out["rate_per_hour"] = round(per_second * 3600, 1)
@@ -749,11 +786,15 @@ class Library:
             return []
         picked: dict[int, sqlite3.Row] = {}
         for _ in range(count):
-            # CROSS JOIN pins the join order: seek tracks by id, then look up their mapping
+            # Each seek looks at no more than PROBE_WINDOW unmeasured tracks, so a provider
+            # with few unmeasured files (or none) cannot make it scan the whole table on the
+            # event loop. Such providers are still covered by the walks and the sweep.
+            # CROSS JOIN pins the join order: seek tracks by id, then look up their mapping.
             row = self.db.execute(
-                f"SELECT m.item_id, m.track_id FROM tracks t CROSS JOIN mappings m ON m.track_id = t.id"  # noqa: S608
-                f" WHERE t.id >= ? AND m.provider=? AND {_UNMEASURED} ORDER BY t.id LIMIT 1",
-                (random.randint(bounds["lo"], bounds["hi"]), provider),  # noqa: S311 - not security
+                "SELECT m.item_id, m.track_id FROM"  # noqa: S608
+                f" (SELECT t.id FROM tracks t WHERE t.id >= ? AND {_UNMEASURED} ORDER BY t.id LIMIT ?) u"
+                " CROSS JOIN mappings m ON m.track_id = u.id WHERE m.provider=? ORDER BY u.id LIMIT 1",
+                (random.randint(bounds["lo"], bounds["hi"]), PROBE_WINDOW, provider),  # noqa: S311
             ).fetchone()
             if row is not None:
                 picked[row["track_id"]] = row
