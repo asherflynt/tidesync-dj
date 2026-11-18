@@ -28,6 +28,8 @@ class FakeMA:
         if command == "music/tracks/library_items":
             items = list(self.tracks.values())
             return items[args.get("offset", 0): args.get("offset", 0) + args["limit"]]
+        if command == "sonic_similarity/rebuild_index":
+            return {"status": "rebuilt"}
         if command == "sonic_similarity/text_search":
             if not self.text_search:
                 raise MAError(command, 999, "Invalid or unsupported command.")
@@ -42,7 +44,10 @@ class FakeMA:
         raise AssertionError(command)
 
     async def try_cmd(self, command, default=None, **args):
-        return await self.cmd(command, **args)
+        try:
+            return await self.cmd(command, **args)
+        except MAError:
+            return default
 
 
 @pytest.fixture
@@ -82,8 +87,10 @@ async def test_sync_listing_pages_and_prunes(lib, monkeypatch):
 
 async def test_sync_analysed_ranks_energy(lib):
     lib.upsert_tracks([_track(i) for i in range(1, 5)])
-    result = await lib.sync_analysed(FakeMA([]))
+    ma = FakeMA([])
+    result = await lib.sync_analysed(ma)
     assert result == {"analysed": 3, "unresolved": 1}
+    assert "sonic_similarity/rebuild_index" in ma.calls
     rows = lib.rows([1, 2, 3, 4])
     assert (rows[1]["energy"], rows[2]["energy"], rows[3]["energy"]) == (1.0, 5.5, 10.0)
     assert rows[4]["analysed"] == 0 and rows[4]["energy"] is None

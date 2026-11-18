@@ -647,6 +647,9 @@ class Library:
         out whatever the collection sounds like. Skipped for tracks that already
         carry Music Assistant's own energy level; replaces tempo estimates.
         """
+        # Refresh MA's in-memory USearch/CLAP indexes from SQLite first so newly
+        # analysed tracks are visible even when MA's background task queue is busy.
+        await ma.try_cmd("sonic_similarity/rebuild_index", timeout=120)
         try:
             high = await ma.cmd("sonic_similarity/text_search", query=ENERGY_HIGH, limit=1_000_000, timeout=300)
             low = await ma.cmd("sonic_similarity/text_search", query=ENERGY_LOW, limit=1_000_000, timeout=300)

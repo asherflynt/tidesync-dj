@@ -28,6 +28,8 @@ class SoundMA:
     async def cmd(self, command, timeout=60, **args):
         args = {k: v for k, v in args.items() if v is not None}
         self.calls.append((command, args))
+        if command == "sonic_similarity/rebuild_index":
+            return {"status": "rebuilt", "index_size": len(INDEXED)}
         if command == "sonic_similarity/text_search":
             items = [{"provider": FS, "item_id": f"Music/{i:03d}.flac", "distance": i / 20} for i in INDEXED]
             return {"analyzed": True, "items": items[: args["limit"]]}

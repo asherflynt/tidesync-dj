@@ -22,6 +22,10 @@ while Music Assistant is still analysing a large library.
   (Music Assistant analyses in a nightly job).
 - **Three tabs on phones:** Now Playing, Up Next (with search at the top) and
   Settings. Tablets keep two columns and laptops three.
+- **2.0.2's quick controls are part of Now Playing.** The vibe buttons, energy
+  buttons and Start button that 2.0.2 added now sit in the Now Playing layout
+  described here, so the third tab is called Settings again (2.0.2 named it DJ
+  Controls).
 - **Start from Now Playing.** When the DJ is stopped, Now Playing shows one
   "Start the music" button and a "Playing in" speaker choice, instead of a
   "Stopped" screen with controls that did nothing. Stop sits next to the
@@ -69,6 +73,28 @@ while Music Assistant is still analysing a large library.
 - The like message said "track" instead of the song's name.
 - Removed the "No Anthropic API key" banner left over from 1.x (Claude has been
   optional since 2.0.0).
+
+## 2.0.2
+
+### Improved
+
+- **Phone & tablet UX.** Added a quick **Start Radio** CTA directly on Now
+  Playing when playback is stopped, made the vibe badge tappable to jump to Set
+  Vibe, added quick **Energy − / +** buttons beside Like & Block on Now Playing,
+  and added 1-tap preset vibe chips (*Chill*, *Focus*, *Upbeat*, *Dinner*,
+  *Party*, *Late Night*).
+- **Tablet 2-column layout.** Placed **DJ Controls** above **Up Next** in the
+  right column on 2-column tablet viewports (`700px–959px`) so Start Radio, Set
+  Vibe and Listener controls stay immediately reachable without scrolling past
+  the queue.
+- **Touch targets & listener editing on touchscreens.** Enforced ≥ 44 px touch
+  targets across transport, volume, chips and queue buttons on coarse-pointer
+  devices, and added long-press (plus an explicit `✎` edit button) to rename or
+  remove listeners without needing a mouse right-click.
+- **Automatic sonic similarity index refresh.** `Library.sync_analysed` now
+  triggers `sonic_similarity/rebuild_index` before syncing analyzed tracks so
+  newly analyzed tracks are immediately searchable via Music Assistant's
+  USearch/CLAP index even while background tasks are busy.
 
 ## 2.0.1
 
