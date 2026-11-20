@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.3.0
+
+### Added
+
+- **Works with Navidrome (OpenSubsonic) libraries.** Libraries backed by
+  Navidrome without a local or network file share now work end to end: songs
+  from Navidrome can seed "start a new mix" and similar-track searches, and
+  TideSync picks up externally analysed songs as they arrive in Music Assistant.
+
+### Fixed
+
+- **Accurate library progress without local file shares.** Music Assistant's
+  built-in analysis progress only counts local and network files as remaining,
+  so a Navidrome-only library could look "finished" while most songs were not
+  ready yet. The "Getting your library ready" card now shows the real count of
+  ready songs out of your full library without a misleading time estimate.
+
 ## 2.2.0
 
 Mixes that stay in the sound of the song you started them from.

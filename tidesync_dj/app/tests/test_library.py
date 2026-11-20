@@ -289,6 +289,140 @@ def test_resolve_matches_a_domain_key_to_its_instance(lib):
     assert lib.resolve("opensubsonic", "78") is None
 
 
+# -- opensubsonic / Navidrome (externally copied analysis) -------------------
+
+NAVI = "opensubsonic--HJ4HE6ox"
+
+
+def _navi_track(i, **extra):
+    return _track(i, provider_mappings=[{"provider_instance": NAVI, "item_id": f"nav{i:04d}"}], **extra)
+
+
+def test_similar_seeds_prefer_recorded_then_filesystem_then_opensubsonic_then_other(lib):
+    lib.upsert_tracks([
+        # 1: has both filesystem and opensubsonic -> prefers filesystem
+        _track(1, audio_metadata={"bpm": 110.0}, provider_mappings=[
+            {"provider_instance": NAVI, "item_id": "nav1"},
+            {"provider_instance": FS, "item_id": "Music/1.flac"},
+        ]),
+        # 2: opensubsonic + other -> prefers opensubsonic
+        _track(2, audio_metadata={"bpm": 115.0}, provider_mappings=[
+            {"provider_instance": "spotify--1", "item_id": "sp2"},
+            {"provider_instance": NAVI, "item_id": "nav2"},
+        ]),
+        # 3: opensubsonic only -> usable as a seed
+        _navi_track(3, audio_metadata={"bpm": 120.0}),
+        # 4: other provider only -> still usable as fallback
+        _track(4, audio_metadata={"bpm": 125.0}, provider_mappings=[
+            {"provider_instance": "spotify--1", "item_id": "sp4"},
+        ]),
+        # 5: recorded sonic_provider/sonic_item_id wins over mappings
+        _track(5, audio_metadata={"bpm": 128.0}, provider_mappings=[
+            {"provider_instance": FS, "item_id": "Music/5.flac"},
+        ]),
+        # 6: unanalysed opensubsonic track -> dropped
+        _navi_track(6),
+    ])
+    lib.db.execute("UPDATE tracks SET sonic_provider=?, sonic_item_id='nav5' WHERE id=5", (NAVI,))
+    assert lib.similar_seeds([6, 1, 2, 3, 4, 5]) == [
+        (FS, "Music/1.flac"),
+        (NAVI, "nav2"),
+        (NAVI, "nav0003"),
+        ("spotify--1", "sp4"),
+        (NAVI, "nav5"),
+    ]
+
+
+async def test_opensubsonic_only_sync_learns_analysed_without_frontier_or_spin(lib, monkeypatch):
+    monkeypatch.setattr("library.SWEEP_BUDGET", 5)
+    monkeypatch.setattr("library.PROBE_COUNT", 20)
+    tracks = [_navi_track(i) for i in range(1, 51)]
+    lib.upsert_tracks(tracks)
+    lib.db.commit()
+
+    class NaviMA:
+        def __init__(self):
+            # tracks 1..5 in CLAP (reported under both instance id and bare domain);
+            # tracks 1..25 have Smart Fades BPM/key copied into MA
+            self.clap = {1: NAVI, 2: NAVI, 3: "opensubsonic", 4: "opensubsonic", 5: NAVI}
+            self.measured = set(range(1, 26))
+            self.calls = []
+
+        async def cmd(self, command, timeout=60, **args):
+            self.calls.append(command)
+            if command == "sonic_similarity/rebuild_index":
+                return {"status": "rebuilt"}
+            if command == "sonic_similarity/text_search":
+                high = "high" in args["query"]
+                items = [{"provider": prov, "item_id": f"nav{tid:04d}",
+                          "distance": (tid / 10) if high else 1 - (tid / 10)}
+                         for tid, prov in self.clap.items()]
+                return {"analyzed": True, "items": items}
+            if command == "music/tracks/get":
+                tid = int(args["item_id"])
+                if tid in self.measured:
+                    return {"item_id": str(tid), "audio_metadata": {"bpm": 122.0, "musical_key": "C major"}}
+                return {"item_id": str(tid), "audio_metadata": None}
+            raise AssertionError(command)
+
+        async def try_cmd(self, command, default=None, **args):
+            return await self.cmd(command, **args)
+
+    ma = NaviMA()
+    # Pass 2 (sound index) resolves both instance id and bare domain
+    analysed = await lib.sync_analysed(ma)
+    assert analysed == {"analysed": 5, "unresolved": 0}
+    assert lib.stats()["in_sound_index"] == 5
+
+    # Pass 3 (features): fetches known CLAP tracks + probes opensubsonic (no frontier walk/anchors, no spin)
+    first = await lib.sync_features(ma, expected=25)
+    assert first["filled"] >= 5  # at least the 5 CLAP tracks; probes/sweep find more
+    assert first["more"] is False  # does not spin on probe hits
+    assert lib.get_meta(f"frontier:{NAVI}") == ""  # opensubsonic does not keep frontier anchors
+
+    # When mirror is caught up to MA's count, wide searches (probes + sweep) are skipped
+    for tid in range(1, 26):
+        lib._apply_audio_metadata(tid, {"bpm": 122.0, "musical_key": "C major"})
+    lib.db.commit()
+    ma.calls.clear()
+    caught = await lib.sync_features(ma, expected=25)
+    assert caught["caught_up"] is True and caught["checked"] == 0 and ma.calls == []
+
+
+async def test_mark_analysed_updates_pool_without_inflating_sound_index(lib):
+    lib.upsert_tracks([_navi_track(1), _navi_track(2)])
+    assert lib.mark_analysed([1]) == 1
+    assert lib.mark_analysed([1]) == 0  # idempotent
+    stats = lib.stats()
+    assert (stats["analysed"], stats["in_sound_index"], stats["measured"]) == (1, 0, 0)
+    # Next sync_features pass picks up the marked track via the "known" query
+    ma = FakeMA([])
+    ma.meta = {1: {"bpm": 118.0, "musical_key": "G major"}}
+    result = await lib.sync_features(ma, expected=1)
+    assert result["filled"] == 1 and lib.stats()["measured"] == 1
+
+
+def test_scanned_and_unanalysed_copied_detection(lib):
+    lib.upsert_tracks([_navi_track(1), _navi_track(2, audio_metadata={"bpm": 120.0})])
+    assert lib.has_scanned_providers() is False
+    assert lib.has_unanalysed_copied() is True
+
+    # Dual-mapped track (both SMB and opensubsonic) is covered by MA's filesystem scan
+    lib.upsert_tracks([
+        _track(1, provider_mappings=[
+            {"provider_instance": FS, "item_id": "Music/1.flac"},
+            {"provider_instance": NAVI, "item_id": "nav0001"},
+        ]),
+    ])
+    assert lib.has_scanned_providers() is True
+    assert lib.has_unanalysed_copied() is False
+
+    # Pure opensubsonic when all tracks are analysed
+    lib.upsert_tracks([_navi_track(1, audio_metadata={"bpm": 120.0})])
+    assert lib.has_scanned_providers() is False
+    assert lib.has_unanalysed_copied() is False
+
+
 # -- Music Assistant's analysis coverage ------------------------------------
 
 DOMAIN = "sonic_analysis"

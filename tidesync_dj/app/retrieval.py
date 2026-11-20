@@ -173,7 +173,11 @@ class _Sonic:
                                    if err.unsupported else f"Finding similar songs failed: {err.details}")
             return [], ""
         if isinstance(res, dict) and res.get("analyzed"):
-            return self.resolve(res.get("items") or []), "traits"
+            found = self.resolve(res.get("items") or [])
+            # Traits neighbours come from analysis rows, so they are analysed; this is how
+            # tracks whose analysis is copied in (e.g. keyed to Navidrome) join the pool.
+            self._lib.mark_analysed(tid for tid, _ in found)
+            return found, "traits"
         return [], ""
 
 

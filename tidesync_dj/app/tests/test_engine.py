@@ -13,13 +13,15 @@ from user_memory import UserStore
 KEYS = ["A minor", "E minor", "C major", "G major", "D minor", "F major"]
 
 
-def _track(i):
-    return {
+def _track(i, provider="fs--1", analysed=True):
+    item = {
         "item_id": str(i), "uri": f"library://track/{i}", "name": f"Song {i}",
         "artists": [{"name": f"Artist {i % 15}"}], "album": {"name": "Album"}, "duration": 200,
-        "provider_mappings": [{"provider_instance": "fs--1", "item_id": f"f{i}"}],
-        "audio_metadata": {"bpm": 90 + (i * 7) % 60, "musical_key": KEYS[i % len(KEYS)]},
+        "provider_mappings": [{"provider_instance": provider, "item_id": f"f{i}"}],
     }
+    if analysed:
+        item["audio_metadata"] = {"bpm": 90 + (i * 7) % 60, "musical_key": KEYS[i % len(KEYS)]}
+    return item
 
 
 class FakeMA:
@@ -27,8 +29,13 @@ class FakeMA:
 
     connected = True
 
-    def __init__(self, n=80, text_search=True):
-        self.tracks = [_track(i) for i in range(1, n + 1)]
+    def __init__(self, n=80, text_search=True, *, provider="fs--1", sonic_provider=None,
+                 analysed_count=None):
+        self.provider = provider
+        self.sonic_provider = sonic_provider or provider
+        self.analysed_count = n if analysed_count is None else analysed_count
+        self.tracks = [_track(i, provider=provider, analysed=i <= self.analysed_count)
+                       for i in range(1, n + 1)]
         self.text_search = text_search
         self.queue: list[dict] = []
         self.index = None
@@ -57,16 +64,18 @@ class FakeMA:
         if command == "sonic_similarity/text_search":
             if not self.text_search:
                 raise MAError(command, 999, "Invalid or unsupported command.")
-            n = len(self.tracks)
+            n = self.analysed_count
+            if not n:
+                return {"analyzed": False, "items": []}
             flip = "calm" in args["query"]
-            items = [{"provider": "fs--1", "item_id": f"f{i}",
+            items = [{"provider": self.sonic_provider, "item_id": f"f{i}",
                       "distance": ((n - i) if flip else i) / n} for i in range(1, n + 1)]
             return {"analyzed": True, "items": sorted(items, key=lambda x: x["distance"])[: args["limit"]]}
         if command == "sonic_similarity/similar":
             seed = int(args["item_ids"][0][1:])
-            near = [i for i in range(1, len(self.tracks) + 1) if i != seed]
+            near = [i for i in range(1, self.analysed_count + 1) if i != seed]
             near.sort(key=lambda i: abs(i - seed))
-            return {"analyzed": True, "items": [{"provider": "fs--1", "item_id": f"f{i}", "distance": 0.1}
+            return {"analyzed": True, "items": [{"provider": self.sonic_provider, "item_id": f"f{i}", "distance": 0.1}
                                                 for i in near[: args["limit"]]]}
         if command == "music/tracks/get":
             return None
@@ -622,3 +631,125 @@ async def test_skips_never_throw_out_songs_the_listener_queued(rig):
     await engine._after_skip()
     assert "library://track/77" in ma.upcoming_uris()
     assert not any(a.get("option") == "replace_next" for c, a in ma.calls if c == "player_queues/play_media")
+# -- opensubsonic / Navidrome-only library ----------------------------------
+
+NAVI = "opensubsonic--HJ4HE6ox"
+
+
+def _make_engine(tmp_path, ma, lib):
+    config = SimpleNamespace(data_dir=tmp_path, ma_host="ma.local", ma_port=8095, dj_tick_interval=30,
+                             vibe_input_text_entity=None, ha_action_entity="")
+    return DJEngine(config, ma, ha=None, planner=ClaudePlanner("", "x"), users=UserStore(tmp_path),
+                    library=lib)
+
+
+async def test_opensubsonic_only_seeds_and_playback(tmp_path):
+    # MA returns bare "opensubsonic" in sonic_similarity results while mappings use the instance id
+    ma = FakeMA(n=80, provider=NAVI, sonic_provider="opensubsonic", analysed_count=50)
+    lib = Library(tmp_path / "lib.db")
+    await lib.sync_all(ma)
+    engine = _make_engine(tmp_path, ma, lib)
+
+    # Clear sonic_item_id on track 25 so seeding must fall back to the opensubsonic mapping
+    lib.db.execute("UPDATE tracks SET sonic_provider=NULL, sonic_item_id=NULL WHERE id=25")
+    lib.db.commit()
+
+    result = await engine.start_radio_from_seed("library://track/25", "Artist - Song 25")
+    assert result["ok"], result
+    similar_calls = [a for c, a in ma.calls if c == "sonic_similarity/similar"]
+    assert any(a.get("item_ids") == ["f25"] and a.get("seed_provider") == NAVI for a in similar_calls)
+    picked = [lib.id_for_uri(u) for u in ma.upcoming_uris()]
+    assert len(picked) == OPENING - 1 and 25 not in picked
+    assert all(tid <= 50 for tid in picked)
+    lib.close()
+
+
+async def test_opensubsonic_coverage_shows_real_ratio_without_false_done_or_eta(tmp_path):
+    ma = FakeMA(n=80, provider=NAVI, analysed_count=20)
+    lib = Library(tmp_path / "lib.db")
+    await lib.sync_all(ma)
+    engine = _make_engine(tmp_path, ma, lib)
+
+    # MA's coverage reports 0 pending because there are no filesystem tracks
+    _patch_coverage(ma, lambda domain: {"analyzed": 20, "pending": 0})
+    await engine._read_coverage()
+    library = (await engine.status())["library"]
+    cov = library["ma_coverage"]
+    assert (library["analysed"], library["total"]) == (20, 80)
+    assert cov["available"] is True
+    assert cov["state"] == "external"  # must not claim "complete"
+    assert cov["analysed"] == 20
+    assert cov["pending"] == 60
+    assert cov["eta_seconds"] is None and cov["rate_per_hour"] is None
+
+    # Once every track in the mirror is analysed, it really is complete
+    for i in range(21, 81):
+        lib._apply_audio_metadata(i, {"bpm": 120.0, "musical_key": "A minor"})
+    lib.db.commit()
+    _patch_coverage(ma, lambda domain: {"analyzed": 80, "pending": 0})
+    await engine._read_coverage()
+    done_cov = (await engine.status())["library"]["ma_coverage"]
+    assert done_cov["state"] == "complete" and done_cov["pending"] == 0 and done_cov["eta_seconds"] == 0
+    lib.close()
+
+
+async def test_opensubsonic_zero_analysed_has_clear_message_without_eta(tmp_path):
+    ma = FakeMA(n=80, provider=NAVI, analysed_count=0)
+    lib = Library(tmp_path / "lib.db")
+    await lib.sync_all(ma)
+    engine = _make_engine(tmp_path, ma, lib)
+    _patch_coverage(ma, lambda domain: {"analyzed": 0, "pending": 0})
+    await engine._read_coverage()
+
+    cov = (await engine.status())["library"]["ma_coverage"]
+    assert cov["state"] == "external" and cov["pending"] == 80 and cov["eta_seconds"] is None
+    result = await engine.start_radio()
+    assert not result["ok"]
+    assert "None of your 80 songs are ready yet" in result["error"]
+    assert "current pace" not in result["error"]
+    lib.close()
+
+
+async def test_transitioning_and_dual_mapped_coverage(tmp_path):
+    fs = "filesystem_smb--eDoxPtVW"
+    ma = FakeMA(n=80, provider=NAVI, analysed_count=20)
+    lib = Library(tmp_path / "lib.db")
+    # 75 opensubsonic-only tracks (55 unanalysed) + 5 leftover SMB tracks (2 unanalysed)
+    tracks = [
+        _track(i, provider=NAVI, analysed=i <= 20) if i <= 75
+        else _track(i, provider=fs, analysed=i <= 78)
+        for i in range(1, 81)
+    ]
+    lib.upsert_tracks(tracks)
+    lib.db.commit()
+    engine = _make_engine(tmp_path, ma, lib)
+
+    # Record >24h of samples where MA only counts the 2 SMB tracks as pending
+    import time
+    now = int(time.time())
+    t0 = now - 30 * 3600
+    for domain in ("sonic_analysis", "smart_fades"):
+        lib.record_coverage(domain, 10, 15, now=t0)
+        lib.record_coverage(domain, 23, 2, now=now)
+    cov = (await engine.status())["library"]["ma_coverage"]
+    assert cov["state"] == "external" and cov["pending"] == 57 and cov["eta_seconds"] is None
+
+    # Dual-mapped library (every track has BOTH SMB and opensubsonic): MA's ETA is preserved
+    dual = [
+        {**_track(i, provider=fs, analysed=i <= 23),
+         "provider_mappings": [
+             {"provider_instance": fs, "item_id": f"Music/{i}.flac"},
+             {"provider_instance": NAVI, "item_id": f"nav{i}"},
+         ]}
+        for i in range(1, 81)
+    ]
+    lib.upsert_tracks(dual)
+    lib.db.commit()
+    for domain in ("sonic_analysis", "smart_fades"):
+        lib.set_meta(f"coverage:{domain}", "[]")
+        lib.record_coverage(domain, 10, 70, now=t0)
+        lib.record_coverage(domain, 23, 57, now=now)
+    dual_cov = (await engine.status())["library"]["ma_coverage"]
+    assert dual_cov["state"] == "analysing" and dual_cov["pending"] == 57
+    assert dual_cov["eta_seconds"] is not None and dual_cov["eta_seconds"] > 0
+    lib.close()

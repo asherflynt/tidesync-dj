@@ -669,14 +669,33 @@ class DJEngine:
                 out.update(state="unavailable", reason=reason, message=COVERAGE_MESSAGES.get(reason))
             return out
         # the domain furthest behind decides when the library is done
-        slowest = max(live.values(), key=lambda p: p["pending"])
+        slowest = max(live.values(), key=lambda p: (p["pending"], -p["analysed"]))
         states = {p["state"] for p in live.values()}
         state = next(s for s in ("measuring", "stalled", "analysing", "complete") if s in states)
+        stats = self._lib.stats()
+        unanalysed = max(0, stats["total"] - stats["analysed"])
+        if unanalysed > 0 and self._coverage_misses_unanalysed(state, slowest, stats["total"]):
+            # MA's coverage only counts filesystem tracks as pending. When the library
+            # relies on externally copied analysis (e.g. opensubsonic) and unanalysed
+            # tracks remain, MA's pending count and scan-rate ETA do not apply: report
+            # the mirror's remaining count without an ETA and never claim "complete".
+            out.update(state="external", analysed=slowest["analysed"], pending=unanalysed,
+                       rate_per_hour=None, measured_hours=slowest["measured_hours"], eta_seconds=None)
+            return out
         etas = [p["eta_seconds"] for p in live.values() if p["eta_seconds"] is not None]
         out.update(state=state, analysed=slowest["analysed"], pending=slowest["pending"],
                    rate_per_hour=slowest["rate_per_hour"], measured_hours=slowest["measured_hours"],
                    eta_seconds=max(etas) if state in ("analysing", "complete") and etas else None)
         return out
+
+    def _coverage_misses_unanalysed(self, state: str, slowest: dict[str, Any], total: int) -> bool:
+        """True when MA's pending count omits unanalysed tracks in the mirror."""
+        if state == "complete" and not self._lib.has_scanned_providers():
+            return True
+        if (state == "complete" or slowest["analysed"] + slowest["pending"] < total) \
+                and self._lib.has_unanalysed_copied():
+            return True
+        return False
 
     def _library_view(self) -> dict[str, Any]:
         """The mirror's counts next to Music Assistant's own (see Library.stats)."""

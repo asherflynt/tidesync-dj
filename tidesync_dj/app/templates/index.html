@@ -1084,7 +1084,9 @@
         text = `${wait[0].toUpperCase()}${wait.slice(1)} to go at the current pace.`;
       } else if (cov.state === "stalled") {
         text = "Nothing new was finished in the last day. Music Assistant usually works on this overnight.";
-      } else {
+      } else if (cov.state === "external") {
+        text = "Analysed songs are copied into Music Assistant overnight, so this grows once a day.";
+      } else if (cov.state === "measuring") {
         text = "Still measuring how long the rest will take. Music Assistant does most of this " +
                "work overnight, so an estimate takes about a day.";
       }

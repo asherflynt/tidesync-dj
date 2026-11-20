@@ -25,7 +25,8 @@ and key (from Smart Fades) out of the ``audio_analysis`` table. Fetching every
 track on every pass would be ~280k calls for a large library, so the pass
 looks where analysis is expected to be:
 
-* tracks the sound index already reported that still lack a tempo,
+* tracks already known to be analysed (from the sound index or similar-track
+  results) that still lack a tempo,
 * tracks played since they were last checked (MA analyses during playback),
 * "anchors" per filesystem provider. MA's background scan takes its candidates
   from a ``GROUP BY provider_item_id, provider_instance`` query, so it works
@@ -36,8 +37,13 @@ looks where analysis is expected to be:
   when the pass's wall-clock budget is spent, so a jump of thousands of newly
   analysed tracks is picked up within a few passes,
 * when Music Assistant's own count says more tracks are analysed than the
-  mirror has found: random probes over the unanalysed files (a hit starts a
-  walk in both directions and becomes a new anchor) and a slow rolling sweep.
+  mirror has found: random probes over unmeasured tracks and a slow rolling
+  sweep. For filesystem providers, a probe hit starts a walk in both
+  directions and becomes a new anchor. Providers whose analysis arrives by
+  external copy (such as ``opensubsonic`` / Navidrome) do not join the
+  frontier walk or keep anchors, because their item ids and copy order are
+  arbitrary; they use random probes (plus the sound index, similar-track
+  results, played tracks and rolling sweep) instead.
 """
 from __future__ import annotations
 
@@ -63,6 +69,10 @@ ENERGY_LOW = "calm, quiet, soft, gentle, slow"
 # (FILESYSTEM_PROVIDER_DOMAINS in its audio_analysis controller). Their instance
 # ids are "<domain>--<random>", e.g. "filesystem_smb--eDoxPtVW".
 SCANNED_DOMAINS = ("filesystem_local", "filesystem_smb", "filesystem_nfs")
+# Providers not covered by MA's background scan whose analysis rows may be
+# populated externally (e.g. analysed on helper machines and copied into MA
+# nightly keyed to the Navidrome/OpenSubsonic mapping).
+COPIED_DOMAINS = ("opensubsonic",)
 
 FEATURE_PASS_SECONDS = 180.0  # wall-clock cap for one sync_features pass
 FRONTIER_MISS_RUN = 200  # consecutive unanalysed files that end a walk
@@ -92,9 +102,33 @@ STEP_RATE_FACTOR = 10  # ...and only when faster than this many times the quicke
 STEP_FLOOR_RATE = 300  # tracks/hour assumed as the quickest pace before any is seen
 
 
+def provider_domain(provider: str) -> str:
+    """Domain prefix of a provider instance id ("opensubsonic--HJ4" -> "opensubsonic")."""
+    return str(provider).split("--", 1)[0]
+
+
 def is_scanned_provider(provider: str) -> bool:
     """True for provider instances whose files MA analyses in the background."""
-    return str(provider).split("--", 1)[0] in SCANNED_DOMAINS
+    return provider_domain(provider) in SCANNED_DOMAINS
+
+
+def is_copied_provider(provider: str) -> bool:
+    """True for provider instances whose analysis arrives by external copy."""
+    return provider_domain(provider) in COPIED_DOMAINS
+
+
+def is_analysable_provider(provider: str) -> bool:
+    """True for provider instances that may carry MA audio analysis."""
+    return is_scanned_provider(provider) or is_copied_provider(provider)
+
+
+def _seed_rank(provider: str) -> int:
+    """Preference order when choosing a mapping to seed sonic_similarity/similar."""
+    if is_scanned_provider(provider):
+        return 0
+    if is_copied_provider(provider):
+        return 1
+    return 2
 
 
 def tempo_energy(bpm: float) -> float:
@@ -439,6 +473,29 @@ class Library:
         self._changed()
         return cur.rowcount
 
+    def mark_analysed(self, track_ids: Iterable[int]) -> int:
+        """Mark tracks known to be analysed (e.g. returned by sonic_similarity/similar).
+
+        Does not touch ``sonic_item_id`` (which tracks the CLAP sound index), so
+        ``in_sound_index`` stays accurate while ``sync_features`` picks up their
+        tempo and key on the next pass.
+        """
+        ids = list(dict.fromkeys(int(i) for i in track_ids))
+        if not ids:
+            return 0
+        updated = 0
+        for i in range(0, len(ids), 500):
+            chunk = ids[i : i + 500]
+            marks = ",".join("?" * len(chunk))
+            cur = self.db.execute(
+                f"UPDATE tracks SET analysed=1 WHERE analysed=0 AND id IN ({marks})", chunk  # noqa: S608
+            )
+            updated += cur.rowcount
+        if updated:
+            self.db.commit()
+            self._changed()
+        return updated
+
     # -- reads --------------------------------------------------------------
 
     def resolve(self, provider: str, item_id: str) -> int | None:
@@ -516,10 +573,13 @@ class Library:
         """``(provider, item_id)`` pairs to seed a similar-track search, in input order.
 
         Music Assistant's similar-track search uses its feature ("Traits")
-        index, which is built from the analysis rows and keyed by the file's
-        provider item id (its relative path), not by the sound (CLAP) index. So
-        an analysed file can seed it before the sound index has it. Tracks that
-        have not been analysed are dropped.
+        index, which is built from the analysis rows and keyed by a provider
+        mapping (a file's relative path for filesystem sources, or the source
+        song id for providers like opensubsonic), not by the sound (CLAP)
+        index. So an analysed track can seed it before the sound index has it.
+        Uses the recorded ``sonic_provider``/``sonic_item_id`` when present,
+        otherwise any mapping (preferring filesystem, then opensubsonic, then
+        others). Tracks that have not been analysed are dropped.
         """
         ids = list(dict.fromkeys(int(i) for i in track_ids))
         return [pair for pair in self.similar_seed_pairs(ids) if pair is not None]
@@ -541,12 +601,13 @@ class Library:
                 if row["sonic_item_id"]:
                     pair = (row["sonic_provider"] or "", row["sonic_item_id"])
                 else:
-                    for m in self.db.execute(
-                        "SELECT provider, item_id FROM mappings WHERE track_id=? ORDER BY provider", (tid,)
-                    ):
-                        if is_scanned_provider(m["provider"]):
-                            pair = (m["provider"], m["item_id"])
-                            break
+                    mappings = self.db.execute(
+                        "SELECT provider, item_id FROM mappings WHERE track_id=? ORDER BY provider, item_id",
+                        (tid,),
+                    ).fetchall()
+                    if mappings:
+                        best = min(mappings, key=lambda m: _seed_rank(m["provider"]))
+                        pair = (best["provider"], best["item_id"])
             out.append(pair)
         return out
 
@@ -739,6 +800,43 @@ class Library:
         rows = self.db.execute("SELECT DISTINCT provider FROM mappings ORDER BY provider").fetchall()
         return [r["provider"] for r in rows if is_scanned_provider(r["provider"])]
 
+    def _copied_providers(self) -> list[str]:
+        rows = self.db.execute("SELECT DISTINCT provider FROM mappings ORDER BY provider").fetchall()
+        return [r["provider"] for r in rows if is_copied_provider(r["provider"])]
+
+    def has_scanned_providers(self) -> bool:
+        """True if any track in the mirror has a filesystem provider mapping."""
+        return bool(self._scanned_providers())
+
+    def has_unanalysed_copied(self) -> bool:
+        """True if an unanalysed track has a copied-analysis mapping and no scanned mapping.
+
+        Music Assistant's ``audio_analysis/coverage`` only counts filesystem
+        tracks as pending, so tracks whose only analysable mapping is e.g.
+        ``opensubsonic`` are omitted from MA's pending count.
+        """
+        copied = self._copied_providers()
+        if not copied:
+            return False
+        scanned = self._scanned_providers()
+        copied_marks = ",".join("?" * len(copied))
+        if not scanned:
+            row = self.db.execute(
+                f"SELECT 1 FROM tracks t JOIN mappings m ON m.track_id = t.id"  # noqa: S608
+                f" WHERE t.analysed=0 AND m.provider IN ({copied_marks}) LIMIT 1",
+                copied,
+            ).fetchone()
+            return row is not None
+        scanned_marks = ",".join("?" * len(scanned))
+        row = self.db.execute(
+            f"SELECT 1 FROM tracks t JOIN mappings m ON m.track_id = t.id"  # noqa: S608
+            f" WHERE t.analysed=0 AND m.provider IN ({copied_marks})"
+            f" AND NOT EXISTS (SELECT 1 FROM mappings s WHERE s.track_id = t.id"
+            f" AND s.provider IN ({scanned_marks})) LIMIT 1",
+            (*copied, *scanned),
+        ).fetchone()
+        return row is not None
+
     def _is_measured(self, tid: int) -> bool:
         row = self.db.execute(
             f"SELECT 1 FROM tracks t WHERE t.id=? AND NOT ({_UNMEASURED})", (tid,)  # noqa: S608
@@ -832,13 +930,21 @@ class Library:
                 picked[row["track_id"]] = row
         return list(picked.values())
 
-    async def _probe(self, run: _FeaturePass, provider: str) -> None:
-        """Random lookups over unmeasured files; a hit is walked both ways and anchored."""
+    async def _probe(self, run: _FeaturePass, provider: str, *, walk: bool = True) -> None:
+        """Random lookups over unmeasured tracks of ``provider``.
+
+        For filesystem providers (``walk=True``), a hit is walked both ways in
+        path order and anchored. For providers whose analysis arrives by
+        external copy in arbitrary order (``walk=False``, e.g. opensubsonic),
+        each hit is stored directly without walking neighbours or anchoring.
+        """
         for row in self._probe_sample(provider, PROBE_COUNT):
             if run.expired():
                 return
             if self._is_measured(row["track_id"]) or not await run.lookup(row["track_id"]):
                 continue  # already found by an earlier probe's walk, or not analysed
+            if not walk:
+                continue
             run.new_region = True
             await self._walk(run, provider, row["item_id"], backward=True)
             last_hit, _ = await self._walk(run, provider, row["item_id"])
@@ -902,8 +1008,8 @@ class Library:
         ).fetchall()
         await self._fetch_many(run, [r["id"] for r in played], remember_miss=True)
         # 3. follow the background scan through each filesystem provider
-        providers = self._scanned_providers()
-        for provider in providers:
+        scanned = self._scanned_providers()
+        for provider in scanned:
             await self._walk_anchors(run, provider)
         # 4. wide searches, only while MA reports analysed tracks the mirror has not found
         measured = self.db.execute(
@@ -911,8 +1017,10 @@ class Library:
         ).fetchone()["n"]
         caught_up = expected is not None and measured >= expected - max(20, expected * CAUGHT_UP_SLACK)
         if not caught_up:
-            for provider in providers:
-                await self._probe(run, provider)
+            for provider in scanned:
+                await self._probe(run, provider, walk=True)
+            for provider in self._copied_providers():
+                await self._probe(run, provider, walk=False)
             await self._sweep(run)
         self.db.commit()
         result = {
