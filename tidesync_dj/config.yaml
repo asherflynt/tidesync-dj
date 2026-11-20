@@ -1,5 +1,5 @@
 name: TideSync DJ
-version: "2.3.0"
+version: "2.4.0"
 slug: tidesync_dj
 description: A DJ for your Music Assistant library that sequences sets by measured tempo, key and energy
 url: https://github.com/asherflynt/tidesync-dj/tree/main/tidesync_dj
@@ -26,6 +26,7 @@ options:
   vibe_input_text_entity: ""
   ha_action_entity: ""
   keep_analysis_running: false
+  styles_url: ""
 schema:
   ma_host: str
   ma_port: int
@@ -42,6 +43,9 @@ schema:
   # Restart Music Assistant's nightly analysis scan whenever it stops with tracks
   # still pending, so a large library is analysed around the clock. Needs an admin token.
   keep_analysis_running: bool?
+  # Optional style tagger on another machine (styles_tagger/ in the repository),
+  # e.g. http://192.168.1.138:8791. Blank = off.
+  styles_url: str?
   # No longer used (kept so options saved by 1.x still validate on upgrade).
   playlist_provider: str?
   tidal_provider: str?

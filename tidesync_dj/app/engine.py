@@ -24,6 +24,7 @@ from ma import MAClient, MAError, MAUnavailable
 from plan import SET_LENGTH, ClaudePlanner, Plan, apply_bias, heuristic_plan, seed_plan
 from retrieval import gather
 from sequencer import RADIO, Track, Weights, energy_curve, sequence
+from styles import StylesClient, StylesUnavailable, top_styles
 from timectx import time_of_day_slot
 
 _LOGGER = logging.getLogger("tidesync.engine")
@@ -134,6 +135,9 @@ class DJEngine:
         self._planner = planner
         self._users = users
         self._lib = library
+        styles_url = str(getattr(config, "styles_url", "") or "")
+        self._styles: StylesClient | None = StylesClient(styles_url) if styles_url else None
+        self._styles_status: dict[str, Any] = {"configured": bool(styles_url)}
         self._state_file = Path(config.data_dir) / "engine_state.json"
         state = self._load_state()
         self.player_id: str | None = state.get("player_id")
@@ -189,6 +193,9 @@ class DJEngine:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
         await self._ma.close()
+        if self._styles is not None:
+            with contextlib.suppress(Exception):
+                await self._styles.close()
         self._lib.close()
 
     def _load_state(self) -> dict[str, Any]:
@@ -233,6 +240,7 @@ class DJEngine:
                 await self._read_coverage()
                 features = await self._lib.sync_features(self._ma, expected=self._expected_analysed())
                 more = bool(features.get("more"))
+                more = await self._sync_styles() or more
                 await self._keep_scan_running(self._pending(), read=False)
                 self._sync_status = {**self._sync_status, "state": "idle", "features": features,
                                      "at": datetime.now().isoformat(timespec="seconds")}
@@ -243,6 +251,22 @@ class DJEngine:
                 _LOGGER.exception("Library sync crashed")
                 self._sync_status = {"state": "error", "error": "unexpected error (see log)"}
             await asyncio.sleep(CATCH_UP_EVERY if more else ANALYSIS_SYNC_EVERY)
+
+    async def _sync_styles(self) -> bool:
+        """Copy new style vectors from the style tagger; True while it has more to send."""
+        if self._styles is None:
+            return False
+        try:
+            result = await self._lib.sync_styles(self._styles)
+            tagger = await self._styles.status()
+        except StylesUnavailable as err:
+            if self._styles_status.get("error") != str(err):
+                _LOGGER.warning("Style tagger not reachable: %s", err)
+            self._styles_status = {"configured": True, "error": str(err)}
+            return False
+        self._styles_status = {"configured": True, "error": None, "last": result,
+                               "tagger": {k: tagger.get(k) for k in ("files", "done", "pending", "eta_hours")}}
+        return bool(result.get("more"))
 
     def _index_behind(self) -> bool:
         """MA's sound index holds fewer tracks than it has analysed (its own refresh is late)."""
@@ -596,7 +620,8 @@ class DJEngine:
         targets = self._targets(count, center)
         scores, sources = await gather(
             self._ma, self._lib, self.plan, seed_ids=seeds, liked_ids=liked, exclude_ids=exclude,
-            targets=targets, recent_ids=list(self._finished), avoid_ids=list(self._skipped))
+            targets=targets, recent_ids=list(self._finished), avoid_ids=list(self._skipped),
+            styles=self._styles)
         best = dict(sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[:CANDIDATE_CAP])
         # another version of a song this session already had (live, acoustic, a compilation copy)
         played_songs = {t.song_key for t in self._played if t.title}
@@ -604,6 +629,7 @@ class DJEngine:
         previous = self._history(current_id, [] if replace else queued)
         weights = RADIO if seeds and not self.plan.queries else Weights()
         picks = sequence(candidates, targets, previous=previous, weights=weights)
+        style_names = self._style_names(picks)
         if not picks:
             if counts["analysed"] < counts["total"]:
                 return {"ok": False, "error": f"Nothing left to play that fits among the "
@@ -629,7 +655,7 @@ class DJEngine:
             "tracks": [
                 {"query": f"{t.artist} - {t.title}" if t.artist else t.title,
                  "energy": round(t.energy) if t.energy is not None else None,
-                 "reason": self._why(t, target, radio=weights is RADIO)}
+                 "reason": self._why(t, target, radio=weights is RADIO, styles=style_names.get(t.id))}
                 for t, target in zip(picks, targets)
             ],
             "enqueued": len(uris),
@@ -700,7 +726,7 @@ class DJEngine:
     def _library_view(self) -> dict[str, Any]:
         """The mirror's counts next to Music Assistant's own (see Library.stats)."""
         return {**self._lib.stats(), "ma_index": self._ma_index, "ma_coverage": self._coverage_view(),
-                "sync": self._sync_status}
+                "sync": self._sync_status, "styles": self._styles_status}
 
     def _history(self, current_id: int | None, queued_ids: list[int]) -> list[Track]:
         """What was heard, is playing and is queued, oldest first, for transitions and spacing.
@@ -715,9 +741,19 @@ class DJEngine:
         known = {int(t.id): t for t in self._lib.candidates({i: 0.5 for i in in_line})}
         return tail + [known[i] for i in line if i in known]
 
+    def _style_names(self, picks: list[Track]) -> dict[str, str]:
+        """"Folk / Country" per pick, from the style tagger (empty without one)."""
+        labels = self._lib.style_labels()
+        if not labels or not picks:
+            return {}
+        vectors = self._lib.style_vectors(int(t.id) for t in picks)
+        return {str(tid): " / ".join(top_styles(vec, labels)) for tid, vec in vectors.items()}
+
     @staticmethod
-    def _why(track: Track, target: float, *, radio: bool = False) -> str:
+    def _why(track: Track, target: float, *, radio: bool = False, styles: str | None = None) -> str:
         bits = []
+        if styles:
+            bits.append(styles)
         if radio:
             bits.append("very close in sound" if track.relevance >= 0.75
                         else "close in sound" if track.relevance >= 0.4 else "same mood")
@@ -1257,4 +1293,7 @@ class DJEngine:
                      "the others are chosen by tempo and energy.")
         if ready < total:
             note += " The rest of your library is still being prepared."
+        if lib.get("with_styles"):
+            note += (f" The style tagger has measured {lib['with_styles']:,} songs, which keeps mixes in "
+                     "their genre and reaches songs Music Assistant has not analysed yet.")
         return note

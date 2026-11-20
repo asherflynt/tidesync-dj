@@ -753,3 +753,48 @@ async def test_transitioning_and_dual_mapped_coverage(tmp_path):
     assert dual_cov["state"] == "analysing" and dual_cov["pending"] == 57
     assert dual_cov["eta_seconds"] is not None and dual_cov["eta_seconds"] > 0
     lib.close()
+
+
+async def test_style_tagger_sync_and_reasons(rig):
+    import base64
+
+    from styles import StylesUnavailable
+
+    engine, ma, lib = rig
+    folk = bytes([2] * 10 + [200, 180] + [2] * 388)
+
+    class Tagger:
+        down = False
+
+        async def labels(self):
+            return [f"Genre---Style {i}" for i in range(400)]
+
+        async def tracks(self, after, limit=2000):
+            if self.down:
+                raise StylesUnavailable("unreachable")
+            items = [{"seq": i, "path": f"Music/{i}.flac", "navidrome_ids": [f"nd{i}"],
+                      "styles": base64.b64encode(folk).decode()} for i in range(1, 81) if i > after][:limit]
+            return {"items": items, "next": items[-1]["seq"] if items else after}
+
+        async def status(self):
+            return {"files": 80, "done": 80, "pending": 0, "eta_hours": None}
+
+        async def similar(self, path, limit=300):
+            return []
+
+        async def close(self):
+            pass
+
+    # the library knows these songs through Navidrome too (opensubsonic mappings)
+    lib.db.executemany("INSERT INTO mappings(provider, item_id, track_id) VALUES('opensubsonic--t', ?, ?)",
+                       [(f"nd{i}", i) for i in range(1, 81)])
+    engine._styles = Tagger()
+    assert await engine._sync_styles() is False  # everything fitted in one pass
+    view = engine._library_view()
+    assert view["with_styles"] == 0 or view["with_styles"] == 80  # stats may be cached for a moment
+    assert engine._styles_status["last"]["synced"] == 80 and engine._styles_status["error"] is None
+    result = await engine.start_radio_from_seed("library://track/40", "Artist 10 - Song 40")
+    assert result["ok"] and all(t["reason"].startswith("Style 10 / Style 11") for t in result["decision"]["tracks"])
+    engine._styles.down = True
+    assert await engine._sync_styles() is False
+    assert engine._styles_status == {"configured": True, "error": "unreachable"}

@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.4.0
+
+Mixes that stay in their genre, with help from an optional genre model.
+
+### Added
+
+- **Optional style tagger.** A small companion program (the `styles_tagger`
+  folder in this repository) runs on another machine that can read your music
+  files. It measures from the audio how much each song resembles 400 music
+  styles, using MTG's Discogs-EffNet model. Set the new **Style tagger address**
+  option to use it. TideSync then:
+  - pushes down songs in a mix whose measured style differs from the starting
+    song's, so a slow R&B or K-pop ballad no longer follows a folk ballad just
+    because both are soft and gentle,
+  - adds the tagger's own sound neighbours, so songs that both Music Assistant's
+    sound index and the tagger find similar come first,
+  - reaches songs Music Assistant hasn't analysed yet, as long as the tagger has
+    measured them,
+  - shows each pick's main styles ("Folk / Country") under **Why these songs**.
+  Similarity still comes only from the audio, never from names or tags. Without
+  the tagger nothing changes.
+
 ## 2.3.0
 
 ### Added

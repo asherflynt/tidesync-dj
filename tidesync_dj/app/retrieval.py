@@ -12,6 +12,11 @@ Assistant's sonic analysis, never from names:
 * the similar-track ("Traits") index, an 18-number summary of tempo, energy
   and timbre, only for an anchor the sound index does not hold yet: it cannot
   tell a folk ballad from a slow rap song, so it is a fallback, not a source,
+* optionally, the style tagger (Discogs-EffNet, see styles.py): a second sonic
+  view trained to tell 400 music styles apart from the audio. Its neighbours
+  cover every file it has measured, including songs Music Assistant has not
+  analysed yet, and its style vectors keep a mix from sliding into a
+  neighbouring genre (a slow R&B or K-pop ballad after a folk ballad),
 * sound search for each plan query when a vibe is typed, plus the sound
   neighbours of the best matches,
 * for a vibe or no direction at all: analysed tracks outside the sound index
@@ -34,6 +39,7 @@ from typing import Any, Iterable, Sequence
 from library import Library
 from ma import MAClient, MAError
 from plan import Plan
+from styles import StylesClient, StylesUnavailable, style_similarity
 
 _LOGGER = logging.getLogger("tidesync.retrieval")
 
@@ -50,6 +56,12 @@ LIKED_ANCHORS = 10  # recent likes that steer a session with no seed, song or vi
 AVOID_LIMIT = 50  # sound neighbours of an early skip that are pushed down
 AVOID_WEIGHT = 0.6  # the skipped song's closest neighbour loses 60%, the 50th nothing
 WIDEN_FACTOR = 4  # a mix with fewer candidates than this x slots is widened
+STYLE_LIMIT = 300  # style-tagger neighbours fetched per anchor
+# Style affinity to the seed (see styles.style_similarity), calibrated on 15 seeds across
+# genres: clear genre jumps (dancehall after hip-hop, trap after folk, indie rock after
+# house) measure 0.15-0.45; same-family neighbours mostly 0.6 and up.
+STYLE_GATE = (0.40, 0.60)  # below the first: full penalty; above the second: none; a ramp between
+STYLE_GATE_FLOOR = 0.35  # a full style clash keeps this share of its score
 WIDE_SOUND_LIMIT = 1000
 ENERGY_LIMIT = 150
 ENERGY_MARGIN = 1.0  # energy top-up window beyond the set's target range
@@ -69,14 +81,16 @@ class Sources:
     rediscover: int = 0
     fallback: int = 0
     avoided: int = 0  # candidates pushed down for sounding like an early skip
+    styled: int = 0  # neighbours that came from the style tagger
+    style_gated: int = 0  # candidates pushed down for a different style than the seed
     widened: bool = False
     notes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {"text": self.text, "vibe_neighbours": self.vibe_neighbours, "similar": self.similar,
                 "traits": self.traits, "energy": self.energy, "rediscover": self.rediscover,
-                "fallback": self.fallback, "avoided": self.avoided, "widened": self.widened,
-                "notes": self.notes}
+                "fallback": self.fallback, "avoided": self.avoided, "styled": self.styled,
+                "style_gated": self.style_gated, "widened": self.widened, "notes": self.notes}
 
 
 def _rank_scores(items: list[dict[str, Any]], top: float, floor: float) -> dict[tuple[str, str], float]:
@@ -121,11 +135,30 @@ def _seed_args(pairs: list[tuple[str, str]]) -> dict[str, Any]:
 class _Sonic:
     """Neighbour lookups for one gather: sound (CLAP) index first, Traits as a fallback."""
 
-    def __init__(self, ma: MAClient, lib: Library, src: Sources) -> None:
+    def __init__(self, ma: MAClient, lib: Library, src: Sources, styles: StylesClient | None = None) -> None:
         self._ma, self._lib, self._src = ma, lib, src
+        self.styles = styles
         self.sound_ok = True  # False once MA says it has no sound-neighbour command
         self.traits_ok = True
         self._cache: dict[tuple[str, str, int], tuple[list[tuple[int, float]], str]] = {}
+        self._style_cache: dict[tuple[str, int], list[int]] = {}
+
+    async def style_neighbours(self, path: str, limit: int = STYLE_LIMIT) -> list[int]:
+        """Library tracks whose style embedding is closest to ``path``'s, nearest first."""
+        if self.styles is None:
+            return []
+        key = (path, limit)
+        if key not in self._style_cache:
+            try:
+                items = await self.styles.similar(path, limit)
+            except StylesUnavailable as err:
+                self._src.notes.append(f"The style tagger is unavailable: {err}")
+                self.styles = None  # do not wait on it again during this pick
+                return []
+            paths = [it["path"] for it in items or [] if it.get("path")]
+            by_path = self._lib.tracks_for_style_paths(paths)
+            self._style_cache[key] = list(dict.fromkeys(by_path[p] for p in paths if p in by_path))
+        return self._style_cache[key]
 
     def resolve(self, items: Iterable[dict[str, Any]]) -> list[tuple[int, float]]:
         """``[(track_id, distance)]`` nearest first; one entry per library track."""
@@ -192,6 +225,7 @@ async def gather(
     targets: Sequence[float] = (),
     recent_ids: Iterable[int] = (),
     avoid_ids: Iterable[int] = (),
+    styles: StylesClient | None = None,
 ) -> tuple[dict[int, float], Sources]:
     """Return ``{track_id: relevance}`` for the plan, plus per-source counts.
 
@@ -205,10 +239,12 @@ async def gather(
         steer the session; otherwise they only lift tracks that are already candidates.
     :param targets: the energy targets of the slots being filled; the energy
         top-up looks for tracks in that range (defaults to the plan's range).
+    :param styles: the optional style tagger: more neighbours, and a style check
+        that keeps a mix in its seed's genre.
     """
     scores: dict[int, float] = {}
     src = Sources()
-    sonic = _Sonic(ma, lib, src)
+    sonic = _Sonic(ma, lib, src, styles)
     seed_ids, liked_ids = list(dict.fromkeys(seed_ids)), list(liked_ids)
     exclude = set(exclude_ids)
     slots = max(len(targets), 1)
@@ -260,6 +296,8 @@ async def gather(
         near_anchor = await _anchor_neighbours(sonic, lib, anchors, src, WIDE_SOUND_LIMIT)
         src.widened = True
     src.similar = len(near_anchor)
+    if seeded and styles is not None:
+        _style_gate(lib, seed_ids, near_anchor, src)
     _merge(scores, near_anchor)
 
     need_filler = not seeded or len(set(scores) - exclude) < WIDEN_FACTOR * slots
@@ -303,19 +341,20 @@ async def _anchor_neighbours(sonic: _Sonic, lib: Library, anchors: list[tuple[in
                              src: Sources, limit: int) -> dict[int, float]:
     """Fuse the anchors' neighbour lists into one 0..1 score per track.
 
-    Each anchor contributes its weight times the neighbour's rank score; the sum is
-    divided by the total weight, so a song close to the seed and to what just played
-    beats one close to only one of them. The best candidate scores 1.
+    Each anchor contributes its weight times the neighbour's rank score (from the
+    sound index, the style tagger, or both: see _two_views), so a song close to the
+    seed and to what just played beats one close to only one of them. Scores are
+    scaled so the best candidate scores 1.
     """
     if not anchors:
         return {}
     ids = [tid for tid, _ in anchors]
     pairs = dict(zip(ids, lib.similar_seed_pairs(ids)))
-    expanded: list[tuple[int, float, tuple[str, str]]] = []
+    expanded: list[tuple[int, float, tuple[str, str] | None]] = []
     for tid, weight in anchors:
         pair = pairs.get(tid)
-        if pair is not None:
-            expanded.append((tid, weight, pair))
+        if pair is not None or (sonic.styles is not None and lib.style_path(tid)):
+            expanded.append((tid, weight, pair))  # a style path alone is enough to follow it
             continue
         if weight < 1.0:
             continue
@@ -331,15 +370,18 @@ async def _anchor_neighbours(sonic: _Sonic, lib: Library, anchors: list[tuple[in
             expanded.append((sid, weight / len(stand_ins), spair))
     fused: dict[int, float] = {}
     same_recording: set[int] = set(ids)
-    traits = 0
+    traits = styled = 0
     for tid, weight, pair in expanded:
-        near, index = await sonic.neighbours(pair, limit)
-        if not near:
+        near, index = await sonic.neighbours(pair, limit) if pair is not None else ([], "")
+        path = lib.style_path(tid) if sonic.styles is not None else None
+        by_style = await sonic.style_neighbours(path, max(limit, STYLE_LIMIT)) if path else []
+        if not near and not by_style:
             if weight >= 1.0 and index == "":
                 src.notes.append("Music Assistant has not indexed how that song sounds yet, so "
                                  "similar songs could not be looked up.")
             continue
         trust = 1.0 if index == "sound" else TRAITS_TRUST
+        sound: dict[int, float] = {}
         rank = 0
         for nid, distance in near:
             if nid == tid:
@@ -348,15 +390,64 @@ async def _anchor_neighbours(sonic: _Sonic, lib: Library, anchors: list[tuple[in
                 same_recording.add(nid)  # the anchor itself in another file or album
                 continue
             rank += 1
-            fused[nid] = fused.get(nid, 0.0) + weight * trust * rank_score(rank)
-            traits += index == "traits"
+            sound[nid] = trust * rank_score(rank)
+        style = {nid: rank_score(r) for r, nid in enumerate((n for n in by_style if n != tid), 1)}
+        traits += len(sound) if index == "traits" else 0
+        styled += len(style)
+        for nid, score in _two_views(lib, sound, style, both=bool(near) and bool(by_style)).items():
+            fused[nid] = fused.get(nid, 0.0) + weight * score
     for nid in same_recording:
         fused.pop(nid, None)
     src.traits = max(src.traits, traits)
+    src.styled = max(src.styled, styled)
     if not fused:
         return {}
     best = max(fused.values())
     return {nid: round(score / best, 4) for nid, score in fused.items()}
+
+
+def _two_views(lib: Library, sound: dict[int, float], style: dict[int, float], *, both: bool) -> dict[int, float]:
+    """One anchor's neighbour scores from the sound index and the style tagger.
+
+    With both views, a song the sound index could have returned (it is in that
+    index) scores the average of the two, so the songs both views agree on lead and
+    a song only one of them likes drops to half. A song outside the sound index can
+    only be seen by the tagger, so its tagger score stands alone.
+    """
+    if not both:
+        return sound or style
+    indexed = lib.in_sound_index(set(style) - set(sound))
+    out: dict[int, float] = {}
+    for nid in set(sound) | set(style):
+        if nid in sound or nid in indexed:
+            out[nid] = (sound.get(nid, 0.0) + style.get(nid, 0.0)) / 2
+        else:
+            out[nid] = style[nid]
+    return out
+
+
+def _style_gate(lib: Library, seed_ids: list[int], scores: dict[int, float], src: Sources) -> None:
+    """Push down candidates whose measured style differs from the seed's.
+
+    Uses the tagger's 400-style vectors (when the seed and the candidate both have
+    one). A candidate at least ``STYLE_GATE[1]`` alike keeps its score; below
+    ``STYLE_GATE[0]`` it keeps ``STYLE_GATE_FLOOR`` of it; in between, a straight ramp.
+    """
+    vectors = lib.style_vectors([*seed_ids, *scores])
+    seeds = [vectors[s] for s in seed_ids if s in vectors]
+    if not seeds:
+        return
+    low, high = STYLE_GATE
+    for tid in list(scores):
+        vec = vectors.get(tid)
+        if vec is None:
+            continue
+        affinity = max(style_similarity(seed, vec) for seed in seeds)
+        if affinity >= high:
+            continue
+        keep = STYLE_GATE_FLOOR + (1 - STYLE_GATE_FLOOR) * max(0.0, (affinity - low) / (high - low))
+        scores[tid] = round(scores[tid] * keep, 4)
+        src.style_gated += 1
 
 
 async def _avoid_scores(sonic: _Sonic, lib: Library, avoid_ids: list[int]) -> dict[int, float]:

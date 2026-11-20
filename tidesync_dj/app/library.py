@@ -176,6 +176,16 @@ CREATE INDEX IF NOT EXISTS idx_tracks_analysed ON tracks(analysed);
 CREATE INDEX IF NOT EXISTS idx_tracks_energy ON tracks(analysed, energy);
 CREATE INDEX IF NOT EXISTS idx_tracks_played ON tracks(last_played);
 CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
+CREATE INDEX IF NOT EXISTS idx_mappings_item ON mappings(item_id);
+-- Optional style tagger (Discogs-EffNet): 400 style probabilities per track (x255,
+-- one byte each) and the tagger's path for the file, used to ask it for neighbours.
+CREATE TABLE IF NOT EXISTS styles (
+    track_id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL,
+    vec BLOB NOT NULL,
+    seq INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_styles_path ON styles(path);
 CREATE TABLE IF NOT EXISTS feedback (
     track_id INTEGER PRIMARY KEY,
     plays INTEGER NOT NULL DEFAULT 0,
@@ -284,8 +294,9 @@ class Library:
             " COALESCE(SUM(sonic_item_id IS NOT NULL),0) in_sound_index"
             " FROM tracks"
         ).fetchone()
-        self._stats = (time.monotonic(), dict(row))
-        return dict(row)
+        out = {**dict(row), "with_styles": self.db.execute("SELECT COUNT(*) FROM styles").fetchone()[0]}
+        self._stats = (time.monotonic(), out)
+        return dict(out)
 
     # -- analysis coverage reported by Music Assistant -----------------------
 
@@ -470,6 +481,7 @@ class Library:
         """Drop tracks that were not seen in the latest full listing."""
         cur = self.db.execute("DELETE FROM tracks WHERE seen_at < ?", (seen_before,))
         self.db.execute("DELETE FROM mappings WHERE track_id NOT IN (SELECT id FROM tracks)")
+        self.db.execute("DELETE FROM styles WHERE track_id NOT IN (SELECT id FROM tracks)")
         self._changed()
         return cur.rowcount
 
@@ -655,6 +667,110 @@ class Library:
             f"SELECT * FROM tracks WHERE {cond} ORDER BY analysed DESC, favorite DESC, name LIMIT ?",  # noqa: S608
             (*args, limit),
         ).fetchall()
+
+    # -- styles (optional tagger) ---------------------------------------------
+
+    def style_vectors(self, ids: Iterable[int]) -> dict[int, bytes]:
+        """400-byte style vectors for the given tracks (only those the tagger measured)."""
+        ids = list(dict.fromkeys(int(i) for i in ids))
+        out: dict[int, bytes] = {}
+        for i in range(0, len(ids), 500):
+            chunk = ids[i : i + 500]
+            marks = ",".join("?" * len(chunk))
+            for row in self.db.execute(
+                f"SELECT track_id, vec FROM styles WHERE track_id IN ({marks})", chunk  # noqa: S608
+            ):
+                out[row["track_id"]] = bytes(row["vec"])
+        return out
+
+    def in_sound_index(self, ids: Iterable[int]) -> set[int]:
+        """Which of the given tracks are in Music Assistant's sound (CLAP) index."""
+        ids = list(dict.fromkeys(int(i) for i in ids))
+        out: set[int] = set()
+        for i in range(0, len(ids), 500):
+            chunk = ids[i : i + 500]
+            marks = ",".join("?" * len(chunk))
+            out.update(r["id"] for r in self.db.execute(
+                f"SELECT id FROM tracks WHERE sonic_item_id IS NOT NULL AND id IN ({marks})", chunk))  # noqa: S608
+        return out
+
+    def style_path(self, track_id: int) -> str | None:
+        """The tagger's path for a track's file, to ask it for neighbours."""
+        row = self.db.execute("SELECT path FROM styles WHERE track_id=?", (int(track_id),)).fetchone()
+        return row["path"] if row else None
+
+    def tracks_for_style_paths(self, paths: Iterable[str]) -> dict[str, int]:
+        """Library track ids for tagger paths (only paths already synced)."""
+        out: dict[str, int] = {}
+        for path in dict.fromkeys(paths):
+            row = self.db.execute("SELECT track_id FROM styles WHERE path=?", (path,)).fetchone()
+            if row is not None:
+                out[path] = row["track_id"]
+        return out
+
+    def _style_track_id(self, item: dict[str, Any]) -> int | None:
+        """Match one tagger file to a library track.
+
+        By the file's Navidrome song id(s) through the opensubsonic mapping first,
+        then by its path through a filesystem mapping (a file's relative path is its
+        item id there). Files the library does not know are skipped.
+        """
+        for song_id in item.get("navidrome_ids") or []:
+            row = self.db.execute(
+                "SELECT track_id FROM mappings WHERE item_id=? AND provider GLOB 'opensubsonic*'", (str(song_id),)
+            ).fetchone()
+            if row is not None:
+                return row["track_id"]
+        path = item.get("path")
+        if path:
+            for row in self.db.execute("SELECT provider, track_id FROM mappings WHERE item_id=?", (path,)):
+                if is_scanned_provider(row["provider"]):
+                    return row["track_id"]
+        return None
+
+    async def sync_styles(self, client: Any, *, max_pages: int = 25, page: int = 2000) -> dict[str, Any]:
+        """Copy new style vectors from the tagger; resumes where the last pass stopped.
+
+        :returns: ``{"synced", "unmatched", "more"}``; ``more`` is true when the
+            tagger still has rows this pass did not reach.
+        """
+        from styles import decode_vector  # local import keeps library usable without httpx
+
+        if not self.get_meta("styles_labels"):
+            self.set_meta("styles_labels", json.dumps(await client.labels()))
+        after = int(self.get_meta("styles_seq", "0") or 0)
+        synced = unmatched = 0
+        more = False
+        for _ in range(max_pages):
+            res = await client.tracks(after, page)
+            items = res.get("items") or []
+            for item in items:
+                vec = decode_vector(item.get("styles") or "")
+                tid = self._style_track_id(item) if vec else None
+                if tid is None:
+                    unmatched += 1
+                    continue
+                self.db.execute(
+                    "INSERT INTO styles(track_id, path, vec, seq) VALUES(?,?,?,?) ON CONFLICT(track_id) DO UPDATE"
+                    " SET path=excluded.path, vec=excluded.vec, seq=excluded.seq",
+                    (tid, item["path"], vec, int(item.get("seq") or 0)),
+                )
+                synced += 1
+            if items:
+                after = int(res.get("next") or items[-1].get("seq") or after)
+                self.set_meta("styles_seq", after)
+            self.db.commit()
+            if len(items) < page:
+                break
+        else:
+            more = True
+        if synced:
+            self._changed()
+        return {"synced": synced, "unmatched": unmatched, "more": more}
+
+    def style_labels(self) -> list[str]:
+        labels = self._json_meta("styles_labels")
+        return labels if isinstance(labels, list) else []
 
     # -- feedback -----------------------------------------------------------
 

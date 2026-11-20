@@ -32,6 +32,8 @@ class Config:
     # Restart Music Assistant's analysis scan whenever it stops with tracks pending.
     keep_analysis_running: bool
     data_dir: Path
+    # Optional style tagger (styles_tagger/ in the repository), e.g. "http://192.168.1.138:8791".
+    styles_url: str = ""
 
     @property
     def ma_ws_url(self) -> str:
@@ -87,4 +89,13 @@ def load_config() -> Config:
         keep_analysis_running=str(_get("keep_analysis_running", False)).strip().lower()
         in ("1", "true", "yes", "on"),
         data_dir=DATA_DIR,
+        styles_url=_clean_url(str(_get("styles_url", "") or "")),
     )
+
+
+def _clean_url(raw: str) -> str:
+    """A base URL for an HTTP service: scheme added when missing, no trailing slash."""
+    raw = (raw or "").strip().rstrip("/")
+    if raw and "://" not in raw:
+        raw = "http://" + raw
+    return raw

@@ -46,6 +46,13 @@ configuration:
       Music Assistant analyses local files for a few hours each night. Turn this
       on to restart that scan whenever it stops with tracks left, so a large
       library is analysed around the clock. Uses more CPU. Needs an admin token.
+  styles_url:
+    name: Style tagger address (optional)
+    description: >-
+      Where the optional style tagger runs, for example http://192.168.1.138:8791.
+      It measures each song's music style from the audio, so mixes stay in their
+      genre and can reach songs Music Assistant has not analysed yet. Leave blank
+      if you don't run it.
   playlist_provider:
     name: (no longer used)
   tidal_provider:

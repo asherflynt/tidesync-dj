@@ -25,9 +25,9 @@ pick is a real track in your library.
 4. **Rolling queue.** It keeps about 8 tracks queued and re-plans on each
    top-up, so skips, likes and energy changes take effect within a song or two.
 
-Only analysed tracks are played. A track counts as analysed as soon as Music
-Assistant has measured its tempo or key, whether or not the sound index has it
-yet. While the library is being analysed, a "Getting your library ready" card on
+Only analysed tracks are played, unless the optional style tagger (below) has
+measured them. A track counts as analysed as soon as Music Assistant has measured
+its tempo or key, whether or not the sound index has it yet. While the library is being analysed, a "Getting your library ready" card on
 Now Playing shows how many songs are ready. With an admin token it also says
 roughly how long the rest will take, once it has watched Music Assistant's
 nightly analysis for about a day. The "What the DJ is doing" view also shows how
@@ -78,6 +78,27 @@ scan whenever it stops with tracks left.
 | `vibe_input_text_entity` | Optional `input_text` helper; a change sets the vibe. |
 | `ha_action_entity` | Optional helper that drives the DJ from automations. |
 | `keep_analysis_running` | Restart Music Assistant's analysis scan until the library is done. |
+| `styles_url` | Optional. Address of the style tagger, e.g. `http://192.168.1.138:8791`. |
+
+### Optional: the style tagger
+
+Music Assistant's sound index hears *how* a song sounds (soft, acoustic, a gentle
+voice) but not always *what kind* of music it is, so a slow R&B or K-pop ballad
+can follow a folk ballad. The style tagger is a separate program, in the
+repository's `styles_tagger` folder, that runs on another machine with access to
+your music files. It measures from the audio how much each song resembles 400
+music styles (MTG's Discogs-EffNet model). With **Style tagger address** set,
+TideSync:
+
+- keeps a mix in its starting song's styles, pushing down songs whose measured
+  style is different,
+- adds the tagger's own sound neighbours, so the songs both views agree on come
+  first,
+- reaches songs Music Assistant has not analysed yet,
+- shows each pick's main styles under **Why these songs**.
+
+Everything still comes from the audio; names and tags are never used to decide
+what sounds alike. Without the tagger the DJ works as before.
 
 ### Driving it from Home Assistant
 
@@ -97,6 +118,8 @@ sound and an energy shape. Claude never chooses tracks.
 - With a key, each vibe change sends: the vibe text, the time of day, the active
   listener's name (a label you choose) and their recent vibe phrases. No track
   list, file path or play history is sent.
+- The style tagger, if you run it, stays on your network. TideSync only reads
+  from it.
 - Likes, blocks and the library mirror are stored under the add-on's `/data`.
 
 ## People, likes and blocks
