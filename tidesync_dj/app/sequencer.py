@@ -88,6 +88,11 @@ def bpm_cost(a: float | None, b: float | None) -> float:
 # Model
 # --------------------------------------------------------------------------
 
+# "(Acoustic Version)", "[Live]", "- Remastered 2011": the same song in another version
+_VERSION_RE = re.compile(r"\s*[\(\[][^)\]]*[\)\]]|\s+-\s+.*$")
+# "Calvin Harris feat. Rihanna", "Simon & Garfunkel": spacing goes by the lead artist
+_FEATURING_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring|with|x|&|and|vs\.?)\s+.*$", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class Track:
@@ -103,21 +108,45 @@ class Track:
 
     @property
     def artist_key(self) -> str:
-        return self.artist.strip().casefold()
+        """The lead artist, so "Ashnikko" and "Ashnikko, Princess Nokia" are spaced as one."""
+        lead = self.artist.split(", ")[0].strip()
+        return (_FEATURING_RE.sub("", lead).strip() or lead).casefold()
+
+    @property
+    def song_key(self) -> tuple[str, str]:
+        """Artist and title without version notes: two versions of one song share it."""
+        base = _VERSION_RE.sub("", self.title).strip().casefold()
+        return self.artist_key, base or self.title.strip().casefold()
 
 
 @dataclass(frozen=True)
 class Weights:
-    """Relative importance of each term in the placement score."""
+    """Relative importance of each term in the placement score.
+
+    The defaults suit a vibe set, where every candidate already matches the
+    request and the energy arc gives the set its shape. Key is the weakest term:
+    for listening (not beat-matched mixing) a pleasant key move matters far less
+    than staying in the requested sound, and a strong key term made the DJ stack
+    songs in one key while ignoring how well they fit.
+    """
 
     energy_fit: float = 1.0
-    bpm: float = 0.8
-    key: float = 0.5
+    bpm: float = 0.6
+    key: float = 0.2
     energy_step: float = 0.6
-    relevance: float = 0.9
+    relevance: float = 1.5
     artist_gap: int = 6  # minimum tracks between two songs by the same artist
     artist_penalty: float = 3.0
     max_energy_step: float = 2.5  # steps larger than this are penalised hard
+
+
+# A mix from a song (or following what plays): sounding like the anchors is the
+# point, so relevance dominates. A top match in a clashing key and a 25% tempo
+# gap costs 2.5*0.05 + 0.1 + 0.3 = 0.53; a half-good match in the same key at the
+# same tempo costs 2.5*0.5 = 1.25, so the close match wins.
+# A mix has hundreds of close songs to choose from, so artists can be spaced
+# much further apart than in a set built from a narrower vibe.
+RADIO = Weights(energy_fit=0.5, bpm=0.3, key=0.1, energy_step=0.5, relevance=2.5, artist_gap=12)
 
 
 ARCS = ("flat", "build", "peak", "wind_down", "wave")
@@ -193,9 +222,22 @@ def sequence(
     """
     pool: dict[str, Track] = {}
     seen = {t.id for t in previous}
+    heard = {t.song_key for t in previous if t.title}
+    versions: dict[tuple[str, str], Track] = {}
     for cand in candidates:
-        if cand.id not in seen and cand.id not in pool:
-            pool[cand.id] = cand
+        if cand.id in seen or cand.id in pool:
+            continue
+        if cand.title:
+            song = cand.song_key
+            if song in heard:
+                continue  # another version of a song already played or queued
+            other = versions.get(song)
+            if other is not None:
+                if (other.relevance, other.id) >= (cand.relevance, cand.id):
+                    continue  # keep only the best-matching version of each song
+                del pool[other.id]
+            versions[song] = cand
+        pool[cand.id] = cand
     tracks = sorted(pool.values(), key=lambda t: t.id)  # stable regardless of input order
     if not tracks or not targets:
         return []

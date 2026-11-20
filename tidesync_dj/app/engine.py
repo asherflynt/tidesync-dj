@@ -21,9 +21,9 @@ from typing import Any
 
 from library import COVERAGE_DOMAINS, Library
 from ma import MAClient, MAError, MAUnavailable
-from plan import SET_LENGTH, ClaudePlanner, Plan, apply_bias, heuristic_plan
+from plan import SET_LENGTH, ClaudePlanner, Plan, apply_bias, heuristic_plan, seed_plan
 from retrieval import gather
-from sequencer import Track, energy_curve, sequence
+from sequencer import RADIO, Track, Weights, energy_curve, sequence
 from timectx import time_of_day_slot
 
 _LOGGER = logging.getLogger("tidesync.engine")
@@ -48,6 +48,10 @@ COVERAGE_MESSAGES = {
 ART_PROVIDERS_EVERY = 300  # re-read which MA providers can serve art
 ART_CACHE_MAX = 2000  # remembered art lookups for tracks whose queue entry had no usable image
 SKIP_FRACTION = 0.5  # stopped before this share of the track = a skip
+RECENT_ANCHORS = 2  # songs that played to the end and now steer a mix (with the seed)
+AVOID_ANCHORS = 3  # songs skipped this session whose sound neighbours are pushed down
+RADIO_SPAN = 0.8  # how far a mix's energy may wander from the song it follows
+REPLAN_AFTER_SKIPS = 2  # skips in a row after which the DJ's queued picks are re-planned
 UNDO_WINDOW = 300  # seconds during which a block can be undone
 
 
@@ -138,6 +142,9 @@ class DJEngine:
         self._energy_bias = 0
         self._dj_stopped = True
         self._seed_ids: list[int] = []
+        self._finished: deque[int] = deque(maxlen=RECENT_ANCHORS)  # played to the end, newest last
+        self._skipped: deque[int] = deque(maxlen=AVOID_ANCHORS)  # skipped this session, newest last
+        self._skip_streak = 0  # skips since the last song that played to the end
         self._position = 0  # slots handed out this session (drives the energy curve)
         self._played: list[Track] = []  # session history incl. queued picks, oldest first
         self._picked_ids: set[int] = set()
@@ -521,6 +528,11 @@ class DJEngine:
     async def _make_plan(self) -> Plan:
         slot = time_of_day_slot()
         plan: Plan | None = None
+        if self._seed_ids and not self.vibe_prompt:
+            row = self._lib.rows(self._seed_ids[:1]).get(self._seed_ids[0])
+            label = (f"{row['artist']} - {row['name']}" if row["artist"] else row["name"]) if row else ""
+            return seed_plan(label, row["energy"] if row else None, slot=slot,
+                             energy_bias=self._energy_bias)
         if self.vibe_prompt and self._planner.enabled:
             self._activity = {"phase": "planning"}
             plan = await self._planner.plan(
@@ -532,10 +544,18 @@ class DJEngine:
                 apply_bias(plan, self._energy_bias)
         return plan or heuristic_plan(self.vibe_prompt, slot=slot, energy_bias=self._energy_bias)
 
-    def _targets(self, count: int) -> list[float]:
+    def _targets(self, count: int, center: float | None = None) -> list[float]:
+        """Energy targets for the next ``count`` slots.
+
+        :param center: for a mix that follows what is playing (no seed, no vibe), the
+            energy of that song: the set stays around it instead of the time of day's.
+        """
         position = self._position
         if self.plan.arc in ("flat", "wave"):
             position %= SET_LENGTH
+        if center is not None:
+            base = max(1.5, min(9.5, center + self._energy_bias))
+            return energy_curve("wave", count, base=base, span=RADIO_SPAN, start=position, total=SET_LENGTH)
         return energy_curve(self.plan.arc, count, base=self.plan.base_energy, span=self.plan.span,
                             start=position, total=SET_LENGTH)
 
@@ -561,23 +581,29 @@ class DJEngine:
         liked, blocked = self._person_ids()
         queue = await self._queue()
         upcoming = [] if replace else await self._upcoming(queue)
-        queued_ids = {tid for it in upcoming
-                      if (tid := self._lib.id_for_uri((it.get("media_item") or {}).get("uri"))) is not None}
+        queued = [tid for it in upcoming
+                  if (tid := self._lib.id_for_uri((it.get("media_item") or {}).get("uri"))) is not None]
         current = queue.get("current_item") or {}
         current_id = self._lib.id_for_uri((current.get("media_item") or {}).get("uri"))
         seeds = list(self._seed_ids)
+        center = None
         if not seeds and not self.plan.queries and current_id is not None:
-            seeds = [current_id]  # no vibe, no seed: stay near what is playing
-        exclude = self._picked_ids | blocked | queued_ids
+            seeds = [current_id]  # no vibe, no seed: a mix that sounds like what is playing
+            center = (self._lib.rows([current_id]).get(current_id) or {"energy": None})["energy"]
+        exclude = self._picked_ids | blocked | set(queued)
         if current_id is not None:
             exclude.add(current_id)
-        targets = self._targets(count)
-        scores, sources = await gather(self._ma, self._lib, self.plan, seed_ids=seeds,
-                                       liked_ids=liked, exclude_ids=exclude, targets=targets)
+        targets = self._targets(count, center)
+        scores, sources = await gather(
+            self._ma, self._lib, self.plan, seed_ids=seeds, liked_ids=liked, exclude_ids=exclude,
+            targets=targets, recent_ids=list(self._finished), avoid_ids=list(self._skipped))
         best = dict(sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[:CANDIDATE_CAP])
-        candidates = self._lib.candidates(best)
-        previous = self._history(current_id, [] if replace else sorted(queued_ids))
-        picks = sequence(candidates, targets, previous=previous)
+        # another version of a song this session already had (live, acoustic, a compilation copy)
+        played_songs = {t.song_key for t in self._played if t.title}
+        candidates = [c for c in self._lib.candidates(best) if not c.title or c.song_key not in played_songs]
+        previous = self._history(current_id, [] if replace else queued)
+        weights = RADIO if seeds and not self.plan.queries else Weights()
+        picks = sequence(candidates, targets, previous=previous, weights=weights)
         if not picks:
             if counts["analysed"] < counts["total"]:
                 return {"ok": False, "error": f"Nothing left to play that fits among the "
@@ -603,7 +629,7 @@ class DJEngine:
             "tracks": [
                 {"query": f"{t.artist} - {t.title}" if t.artist else t.title,
                  "energy": round(t.energy) if t.energy is not None else None,
-                 "reason": self._why(t, target)}
+                 "reason": self._why(t, target, radio=weights is RADIO)}
                 for t, target in zip(picks, targets)
             ],
             "enqueued": len(uris),
@@ -658,17 +684,24 @@ class DJEngine:
                 "sync": self._sync_status}
 
     def _history(self, current_id: int | None, queued_ids: list[int]) -> list[Track]:
-        """Recent session tracks + what is playing/queued, for transitions and artist spacing."""
-        tail = list(self._played[-12:])
-        known = {t.id for t in tail}
-        extra = [i for i in ([current_id] if current_id is not None else []) + queued_ids
-                 if str(i) not in known]
-        tail.extend(self._lib.candidates({i: 0.5 for i in extra}))
-        return tail
+        """What was heard, is playing and is queued, oldest first, for transitions and spacing.
+
+        Session picks that already left the queue come first, then the playing song,
+        then the upcoming queue in play order, so the last entry is the song the new
+        picks will follow (also when the listener added songs of their own).
+        """
+        line = ([current_id] if current_id is not None else []) + list(queued_ids)
+        in_line = set(line)
+        tail = [t for t in self._played[-12:] if int(t.id) not in in_line]
+        known = {int(t.id): t for t in self._lib.candidates({i: 0.5 for i in in_line})}
+        return tail + [known[i] for i in line if i in known]
 
     @staticmethod
-    def _why(track: Track, target: float) -> str:
+    def _why(track: Track, target: float, *, radio: bool = False) -> str:
         bits = []
+        if radio:
+            bits.append("very close in sound" if track.relevance >= 0.75
+                        else "close in sound" if track.relevance >= 0.4 else "same mood")
         if track.bpm:
             bits.append(f"{round(track.bpm)} BPM")
         if track.key:
@@ -705,6 +738,9 @@ class DJEngine:
         self._position = 0
         self._played.clear()
         self._picked_ids.clear()
+        self._finished.clear()
+        self._skipped.clear()
+        self._skip_streak = 0
         self._arc_log.clear()
         self._artists_seen.clear()
         self.session_started = time.monotonic()
@@ -817,8 +853,28 @@ class DJEngine:
         except (MAError, MAUnavailable) as err:
             return {"ok": False, "error": str(err)}
         if not self._dj_stopped:
-            asyncio.create_task(self._safe_top_up())
+            asyncio.create_task(self._after_skip())
         return {"ok": True}
+
+    async def _after_skip(self) -> None:
+        """Keep the queue topped up; after a run of skips, re-plan the DJ's queued picks.
+
+        Two skips in a row say the direction is off, and the songs already queued were
+        chosen the same way. They are replaced, steered away from what was skipped,
+        unless the listener queued songs of their own (those are never thrown out).
+        """
+        with contextlib.suppress(Exception):
+            if self._skip_streak >= REPLAN_AFTER_SKIPS and await self._upcoming_all_picked():
+                self._skip_streak = 0
+                await self._refill("skips", AHEAD_TARGET, replace=True)
+            else:
+                await self._top_up("auto")
+
+    async def _upcoming_all_picked(self) -> bool:
+        """True when every upcoming queue entry is one the DJ picked this session."""
+        upcoming = await self._upcoming(await self._queue())
+        ids = [self._lib.id_for_uri((it.get("media_item") or {}).get("uri")) for it in upcoming]
+        return all(i is not None and i in self._picked_ids for i in ids)
 
     async def _safe_top_up(self) -> None:
         with contextlib.suppress(Exception):
@@ -962,6 +1018,8 @@ class DJEngine:
                 or time.monotonic() - saved["at"] > UNDO_WINDOW):
             return {"ok": False, "error": "There is nothing to undo."}
         self._last_block = None
+        with contextlib.suppress(ValueError):
+            self._skipped.remove(saved["track_id"])  # no longer steers the mix away from its sound
         person = self._users.get(saved["slug"])
         if person is not None:
             person.blocks = saved["blocks"]
@@ -1047,6 +1105,14 @@ class DJEngine:
         self._last_feedback = (uri, time.monotonic())
         self._lib.record_play(tid, skipped=skipped)
         self.stats["skips" if skipped else "tracks_played"] += 1
+        self._skip_streak = self._skip_streak + 1 if skipped else 0
+        # this session's listening steers the next picks: finished songs anchor, skips repel
+        mine, other = (self._skipped, self._finished) if skipped else (self._finished, self._skipped)
+        with contextlib.suppress(ValueError):
+            other.remove(tid)
+        with contextlib.suppress(ValueError):
+            mine.remove(tid)
+        mine.append(tid)
 
     async def _on_event(self, event: str, msg: dict[str, Any]) -> None:
         if event != "media_item_played" or self._dj_stopped:
@@ -1074,6 +1140,8 @@ class DJEngine:
             now_uri = ((queue.get("current_item") or {}).get("media_item") or {}).get("uri")
             if now_uri and now_uri != data.get("uri") and str(queue.get("state")).lower() == "playing":
                 self._record_feedback(data, skipped=True)
+                if not self._dj_stopped:
+                    await self._after_skip()
 
     # -- status -------------------------------------------------------------
 
@@ -1096,6 +1164,7 @@ class DJEngine:
             "volume": player.get("volume_level"),
             "dj_stopped": self._dj_stopped,
             "vibe": self.vibe_prompt or None,
+            "mix": self._mix_label(),
             "current_liked": self._users.active.is_liked(uri),
             "energy_bias": self._energy_bias,
             "set_phase": self.plan.arc,
@@ -1116,6 +1185,15 @@ class DJEngine:
             "model": self._planner.model if self._planner.enabled else "no AI key — rules only",
             "library": self._library_view(),
         }
+
+    def _mix_label(self) -> str | None:
+        """"Artist - Title" of the song the running mix was started from, if any."""
+        if self._dj_stopped or self.vibe_prompt or not self._seed_ids:
+            return None
+        row = self._lib.rows(self._seed_ids[:1]).get(self._seed_ids[0])
+        if row is None:
+            return None
+        return f"{row['artist']} - {row['name']}" if row["artist"] else row["name"]
 
     async def dj_status(self) -> dict[str, Any]:
         queue: dict[str, Any] = {}

@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.2.0
+
+Mixes that stay in the sound of the song you started them from.
+
+### Changed
+
+- **"Start a new mix from this song" finds songs that sound like it.** The DJ
+  used Music Assistant's quick 18-number summary of each song (tempo, energy,
+  loudness and so on) to find similar songs. That summary can't tell a quiet folk
+  ballad from a slow rap or dance track, so a mix from a gentle acoustic song
+  could wander into hip-hop and EDM. It now uses Music Assistant's sound index
+  (CLAP), which compares how whole songs sound. The summary is only a fallback
+  for songs that index doesn't hold yet.
+- **Sounding right beats matching keys.** The DJ weighed musical key and tempo
+  so heavily that it stacked several songs in one key in a row, even when they
+  didn't fit. In a mix, how close a song sounds to the one you picked now counts
+  most, and key is only a tie-breaker. Vibe sets keep their energy arc, with key
+  turned down there too.
+- **No random filler in a mix.** Songs chosen at random by energy or because you
+  haven't heard them in a while no longer slip in between close matches. They
+  only join when the close matches run out.
+- **A mix follows your listening.** Songs that play to the end steer the next
+  picks a little; the song you started from still leads. A song you skip pushes
+  down songs that sound like it, and after two skips in a row the DJ re-plans the
+  songs it has queued. Songs you queued yourself are never thrown out.
+- **With no vibe set, the DJ follows what is playing** and stays near its
+  energy, instead of the time of day's.
+- **Artists are spaced further apart in a mix** (about 12 songs), and a
+  "feat." credit counts as the same artist.
+- **No second version of a song.** Acoustic, live and remastered versions, and
+  compilation copies, of a song already played this session are skipped.
+- **The vibe pill shows the running mix** ("mix: Artist - Song") instead of
+  "no vibe set".
+
+### Fixed
+
+- The DJ now continues from the last song actually in the queue. It sometimes
+  judged the next song's fit against a different queued song.
+- If the song you start a mix from hasn't been analysed yet, the DJ follows
+  other analysed songs by the same artist instead of playing unrelated music.
+
 ## 2.1.2
 
 ### Fixed

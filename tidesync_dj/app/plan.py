@@ -76,8 +76,28 @@ def heuristic_plan(vibe: str, *, slot: str = "", energy_bias: int = 0) -> Plan:
         base_energy=base,
         span=span,
         note=f"Reading “{text}” as energy around {base:.0f}/10." if text
-        else "No vibe set — playing from your likes and rediscoveries.",
+        else "No vibe set — following the sound of what is playing.",
         source="rules",
+    )
+    return apply_bias(plan, energy_bias)
+
+
+def seed_plan(label: str, energy: float | None, *, slot: str = "", energy_bias: int = 0) -> Plan:
+    """A mix from one song: stay around its energy and let sound similarity choose.
+
+    No sound queries: the song itself is the description. The energy only gently
+    waves around the seed's own level (time of day decides when the seed's energy
+    is not known yet).
+    """
+    base = float(energy) if energy is not None else _SLOT_ENERGY.get(slot, 5.5)
+    plan = Plan(
+        vibe="",
+        queries=[],
+        arc="wave",
+        base_energy=max(1.5, min(9.5, base)),
+        span=0.8,
+        note=f"Playing songs that sound like {label}." if label else "Playing songs that sound like your pick.",
+        source="seed",
     )
     return apply_bias(plan, energy_bias)
 

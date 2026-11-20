@@ -1025,7 +1025,7 @@
         ? `Claude (${s.model}) turns each vibe into a description of how the music should sound.`
         : "Keyword rules read each vibe (no Anthropic API key is set). Adding a key in the add-on's " +
           "configuration lets Claude read vibes too.";
-      document.getElementById("vibePill").textContent = s.vibe || "no vibe set";
+      document.getElementById("vibePill").textContent = s.vibe || (s.mix ? "mix: " + s.mix : "no vibe set");
       document.querySelectorAll(".vibe-chip").forEach(c =>
         c.classList.toggle("active", !!s.vibe && c.dataset.vibe === s.vibe));
       const st = s.stats || {};

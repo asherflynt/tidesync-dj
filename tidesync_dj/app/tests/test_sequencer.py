@@ -1,7 +1,7 @@
 """Sequencer: key/tempo maths and ordering behaviour."""
 import random
 
-from sequencer import (Track, Weights, bpm_cost, camelot, energy_curve, key_cost, sequence,
+from sequencer import (RADIO, Track, Weights, bpm_cost, camelot, energy_curve, key_cost, sequence,
                        transition_cost)
 
 
@@ -103,3 +103,32 @@ def test_sequence_tolerates_missing_features_and_small_pools():
     pool = [Track(id="a", artist="x"), Track(id="b", artist="y", bpm=120)]
     assert {t.id for t in sequence(pool, [5.0] * 5)} == {"a", "b"}
     assert sequence([], [5.0]) == []
+
+
+def test_featured_credits_count_as_the_lead_artist():
+    assert Track(id="1", artist="Ashnikko, Princess Nokia").artist_key == "ashnikko"
+    assert Track(id="2", artist="Calvin Harris feat. Rihanna").artist_key == "calvin harris"
+    assert Track(id="3", artist="Simon & Garfunkel").artist_key == "simon"
+    pool = [Track(id=str(i), artist="Ashnikko" if i % 2 else f"Ashnikko, Guest {i}", bpm=120, key="8A",
+                  energy=5, relevance=0.95) for i in range(10)]
+    pool += [Track(id=str(100 + i), artist=f"Other {i}", bpm=120, key="8A", energy=5, relevance=0.6)
+             for i in range(10)]
+    picks = sequence(pool, [5.0] * 6)
+    assert sum(t.artist_key == "ashnikko" for t in picks) == 1
+
+
+def test_another_version_of_a_queued_song_is_not_picked():
+    played = [Track(id="1", artist="Rose Betts", title="Irish Eyes", relevance=1.0)]
+    pool = [Track(id="2", artist="Rose Betts", title="Irish Eyes (The Piano Version)", relevance=0.99),
+            Track(id="3", artist="A", title="Let It Go (Acoustic Version)", relevance=0.9),
+            Track(id="4", artist="A", title="Let It Go", relevance=0.8),
+            Track(id="5", artist="B", title="Other", relevance=0.5)]
+    picks = sequence(pool, [5.0] * 4, previous=played)
+    assert [t.id for t in picks] in (["3", "5"], ["5", "3"])  # no piano version, one Let It Go
+
+
+def test_radio_prefers_a_close_match_over_a_smooth_key_and_tempo():
+    prev = Track(id="p", artist="seed", bpm=100, key="8A", energy=5)
+    close = Track(id="c", artist="x", bpm=125, key="2B", energy=5, relevance=0.95)
+    smooth = Track(id="s", artist="y", bpm=100, key="8A", energy=5, relevance=0.5)
+    assert [t.id for t in sequence([close, smooth], [5.0], previous=[prev], weights=RADIO)] == ["c"]

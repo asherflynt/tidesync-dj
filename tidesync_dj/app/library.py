@@ -141,6 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_mappings_track ON mappings(track_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_analysed ON tracks(analysed);
 CREATE INDEX IF NOT EXISTS idx_tracks_energy ON tracks(analysed, energy);
 CREATE INDEX IF NOT EXISTS idx_tracks_played ON tracks(last_played);
+CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
 CREATE TABLE IF NOT EXISTS feedback (
     track_id INTEGER PRIMARY KEY,
     plays INTEGER NOT NULL DEFAULT 0,
@@ -521,22 +522,49 @@ class Library:
         have not been analysed are dropped.
         """
         ids = list(dict.fromkeys(int(i) for i in track_ids))
+        return [pair for pair in self.similar_seed_pairs(ids) if pair is not None]
+
+    def similar_seed_pairs(self, track_ids: Iterable[int]) -> list[tuple[str, str] | None]:
+        """Like :meth:`similar_seeds`, but one entry per input id (``None`` = not analysed).
+
+        The sound (CLAP) index's own key is preferred: it is the file MA measured
+        how the song sounds from. A track can have several files (a compilation
+        and the original album), and only one of them may be in that index.
+        """
+        ids = [int(i) for i in track_ids]
         rows = self.rows(ids)
-        out: list[tuple[str, str]] = []
+        out: list[tuple[str, str] | None] = []
         for tid in ids:
             row = rows.get(tid)
-            if row is None or not row["analysed"]:
-                continue
-            if row["sonic_item_id"]:
-                out.append((row["sonic_provider"] or "", row["sonic_item_id"]))
-                continue
-            for m in self.db.execute(
-                "SELECT provider, item_id FROM mappings WHERE track_id=? ORDER BY provider", (tid,)
-            ):
-                if is_scanned_provider(m["provider"]):
-                    out.append((m["provider"], m["item_id"]))
-                    break
+            pair: tuple[str, str] | None = None
+            if row is not None and row["analysed"]:
+                if row["sonic_item_id"]:
+                    pair = (row["sonic_provider"] or "", row["sonic_item_id"])
+                else:
+                    for m in self.db.execute(
+                        "SELECT provider, item_id FROM mappings WHERE track_id=? ORDER BY provider", (tid,)
+                    ):
+                        if is_scanned_provider(m["provider"]):
+                            pair = (m["provider"], m["item_id"])
+                            break
+            out.append(pair)
         return out
+
+    def artist_stand_ins(self, track_id: int, limit: int = 3) -> list[tuple[int, tuple[str, str]]]:
+        """Analysed songs by the same artist, to steer by while ``track_id`` itself is not analysed.
+
+        Returns ``[(track_id, (provider, item_id))]`` for songs in the sound index,
+        favourites and recently played first.
+        """
+        row = self.db.execute("SELECT artist FROM tracks WHERE id=?", (int(track_id),)).fetchone()
+        if row is None or not row["artist"]:
+            return []
+        rows = self.db.execute(
+            "SELECT id, sonic_provider, sonic_item_id FROM tracks WHERE artist=? AND id<>? AND analysed=1"
+            " AND sonic_item_id IS NOT NULL ORDER BY favorite DESC, last_played DESC, id LIMIT ?",
+            (row["artist"], int(track_id), limit),
+        )
+        return [(r["id"], (r["sonic_provider"] or "", r["sonic_item_id"])) for r in rows]
 
     def near_energy(self, low: float, high: float, center: float, limit: int) -> dict[int, float]:
         """Analysed tracks outside the sound index with energy in ``[low, high]``.

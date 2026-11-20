@@ -549,3 +549,76 @@ async def test_sync_pass_uses_ma_count_and_catches_up_quickly(rig, monkeypatch):
     assert sleeps == [engine_module.CATCH_UP_EVERY]
     status = (await engine.status())["library"]["sync"]
     assert status["state"] == "idle" and status["features"]["more"] is True
+
+
+async def test_a_mix_is_explained_and_steered_by_listening(rig):
+    engine, ma, lib = rig
+    result = await engine.start_radio_from_seed("library://track/40", "Artist 10 - Song 40")
+    assert result["ok"], result
+    dj = await engine.dj_status()
+    assert dj["set_plan"]["arc_note"].startswith("Playing songs that sound like Artist 10 - Song 40.")
+    assert (await engine.status())["mix"] == "Artist 10 - Song 40"
+    assert dj["plan"]["source"] == "seed" and dj["plan"]["queries"] == []
+    assert all("in sound" in t["reason"] or "same mood" in t["reason"]
+               for t in result["decision"]["tracks"])
+    finished, skipped = lib.id_for_uri(ma.upcoming_uris()[0]), lib.id_for_uri(ma.upcoming_uris()[1])
+    engine._record_feedback({"uri": f"library://track/{finished}"}, skipped=False)
+    engine._record_feedback({"uri": f"library://track/{skipped}"}, skipped=True)
+    assert list(engine._finished) == [finished] and list(engine._skipped) == [skipped]
+    ma.calls.clear()
+    assert (await engine._refill("test", 4, replace=False))["ok"]
+    asked = [a["item_ids"] for c, a in ma.calls if c == "sonic_similarity/similar"]
+    # this fake has no sound index, so both anchors fall back to Traits: the seed, then the finished song
+    assert asked[:2] == [["f40"], [f"f{finished}"]]
+    # a song that was skipped and then played to the end is an anchor again, not a skip
+    engine._last_feedback = ("", 0.0)
+    engine._record_feedback({"uri": f"library://track/{skipped}"}, skipped=False)
+    assert skipped in engine._finished and skipped not in engine._skipped
+
+
+async def test_history_follows_the_queue_order_not_track_ids(rig):
+    engine, ma, lib = rig
+    queued = [70, 12, 55]  # the queue's play order; the last one is what new picks follow
+    history = engine._history(30, queued)
+    assert [int(t.id) for t in history] == [30, 70, 12, 55]
+
+
+async def test_following_what_plays_stays_near_its_energy(rig):
+    engine, ma, lib = rig
+    await engine.start_radio()
+    current = lib.id_for_uri(ma.queue[0]["media_item"]["uri"])
+    lib.db.execute("UPDATE tracks SET energy=2.0 WHERE id=?", (current,))
+    ma.calls.clear()
+    result = await engine._refill("test", 4, replace=False)
+    assert result["ok"]
+    assert all(t["reason"].endswith(("aiming energy 2", "aiming energy 3", "aiming energy 1"))
+               for t in result["decision"]["tracks"])
+
+
+async def test_two_skips_in_a_row_replan_the_djs_picks(rig):
+    engine, ma, lib = rig
+    await engine.start_radio_from_seed("library://track/40", "Artist 10 - Song 40")
+    first_plan = ma.upcoming_uris()
+    assert (await engine.skip())["ok"]
+    await engine._after_skip()  # what the skip schedules: one skip only tops up
+    assert ma.upcoming_uris() == first_plan[1:]
+    assert (await engine.skip())["ok"]
+    await engine._after_skip()
+    replanned = ma.upcoming_uris()
+    assert engine._skip_streak == 0 and len(replanned) == AHEAD_TARGET
+    assert not set(replanned) & set(first_plan[:2])  # skipped songs are not brought back
+    assert any(c == "player_queues/play_media" and a["option"] == "replace_next" for c, a in ma.calls)
+
+
+async def test_skips_never_throw_out_songs_the_listener_queued(rig):
+    engine, ma, lib = rig
+    await engine.start_radio_from_seed("library://track/40", "Artist 10 - Song 40")
+    await engine.enqueue_uri("library://track/77", option="add")  # the listener's own pick
+    engine._record_feedback({"uri": ma.queue[0]["media_item"]["uri"]}, skipped=True)
+    engine._last_feedback = ("", 0.0)
+    engine._record_feedback({"uri": ma.queue[1]["media_item"]["uri"]}, skipped=True)
+    assert engine._skip_streak == 2
+    ma.calls.clear()
+    await engine._after_skip()
+    assert "library://track/77" in ma.upcoming_uris()
+    assert not any(a.get("option") == "replace_next" for c, a in ma.calls if c == "player_queues/play_media")

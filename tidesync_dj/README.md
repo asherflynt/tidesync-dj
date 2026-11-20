@@ -9,15 +9,19 @@ pick is a real track in your library.
 
 1. **Library mirror.** TideSync keeps a local copy of your Music Assistant track
    list, with tempo, key and an energy value for every analysed track.
-2. **Finding candidates.** A vibe is matched against how your tracks *sound*,
-   using Music Assistant's sonic search. That search only knows the tracks in
-   Music Assistant's sound index, which can lag far behind its analysis, so
-   tracks that resemble the best matches, and analysed tracks with a fitting
-   energy, are added too. A starting song or your recent likes pull in tracks
-   that sound similar. A few tracks you have not heard in a while are mixed in
-   for variety.
-3. **Sequencing.** Plain code orders the candidates to follow an energy curve
-   and keeps each transition close in tempo and key, with artists spaced out.
+2. **Finding candidates.** Similarity always comes from how songs *sound*,
+   never from their names. A mix from a song (or, with no vibe set, from what is
+   playing) asks Music Assistant's sound index for the songs that sound most like
+   it; songs you let play to the end steer it a little, and a song you skip
+   pushes down songs that sound like it. A vibe is matched against your tracks
+   with Music Assistant's sonic search, plus songs that sound like the best
+   matches. That search only knows the tracks in the sound index, which can lag
+   behind the analysis, so a vibe set also adds analysed tracks with a fitting
+   energy. A mix gets no random filler unless the close matches run out.
+3. **Sequencing.** Plain code orders the candidates. In a mix, sounding like the
+   starting song counts most, energy and tempo keep the flow smooth, and key is
+   only a tie-breaker. A vibe set follows an energy curve. Artists are spaced
+   out, and a second version of a song already played is skipped.
 4. **Rolling queue.** It keeps about 8 tracks queued and re-plans on each
    top-up, so skips, likes and energy changes take effect within a song or two.
 
