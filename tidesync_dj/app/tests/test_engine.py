@@ -363,6 +363,32 @@ def test_track_view_builds_proxied_art_url():
                                 "image": "art/abc123", "duration": None, "item_id": "q1"}
 
 
+async def test_art_skips_disabled_providers_and_falls_back_to_the_full_track(rig):
+    """A queue item's only image can belong to a disabled provider; MA then 404s on it."""
+    engine, ma, _ = rig
+    real = ma.cmd
+    dead = {"provider": "subsonic--1", "proxy_id": "dead"}
+    local = {"provider": "fs--1", "proxy_id": "local"}
+
+    async def cmd(command, timeout=60, **args):
+        if command == "providers":
+            return [{"instance_id": "fs--1", "available": True}]
+        if command == "music/tracks/get":
+            ma.calls.append((command, args))
+            return {"metadata": {"images": [dead]}, "album": {"metadata": {"images": [local]}}}
+        return await real(command, timeout=timeout, **args)
+
+    ma.cmd = cmd
+    item = {"image": dead, "media_item": {"uri": "library://track/5", "item_id": "5",
+                                          "provider": "library", "media_type": "track"}}
+    live = await engine._live_providers()
+    assert live == {"fs--1"}
+    assert await engine._art(item, live) == "art/local"
+    assert await engine._art(item, live) == "art/local"  # cached: one lookup only
+    assert sum(c == "music/tracks/get" for c, _ in ma.calls) == 1
+    assert await engine._art({**item, "image": local}, live) == "art/local"
+
+
 def test_heuristic_plan_reads_energy_words():
     assert heuristic_plan("chill sunday morning").base_energy < 4
     assert heuristic_plan("workout").base_energy > 7

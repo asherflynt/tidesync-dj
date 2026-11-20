@@ -595,7 +595,8 @@
 
         <div class="np-center" id="npPlaying" hidden>
           <div class="art-wrap">
-            <img class="album-art" id="albumArt" alt="Album art" />
+            <img class="album-art" id="albumArt" alt="Album art"
+                 onerror="this.classList.remove('visible'); document.getElementById('albumPlaceholder').style.display = 'block'" />
             <span class="art-placeholder" id="albumPlaceholder">♫</span>
           </div>
           <div class="track-title" id="nowPlaying">—</div>
@@ -948,7 +949,7 @@
   // ── Track-row rendering (shared by queue + search) ──
   function thumbHTML(image) {
     return image
-      ? `<img class="thumb" src="${esc(image)}" alt="" loading="lazy" />`
+      ? `<img class="thumb" src="${esc(image)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=&quot;thumb ph&quot;>♫</div>'" />`
       : `<div class="thumb ph">♫</div>`;
   }
   function trackText(t) {
@@ -1011,7 +1012,7 @@
       const art = document.getElementById("albumArt");
       const placeholder = document.getElementById("albumPlaceholder");
       if (s.album_art) {
-        if (art.src !== s.album_art) art.src = s.album_art;
+        if (art.getAttribute("src") !== s.album_art) art.src = s.album_art;
         art.classList.add("visible");
         placeholder.style.display = "none";
       } else {

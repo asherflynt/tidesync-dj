@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.2
+
+### Fixed
+
+- **Album art loads again.** Each song in Music Assistant's queue carries one
+  cover image, taken from whichever music source comes first. When that source is
+  turned off in Music Assistant (for example a Subsonic server you've moved away
+  from), Music Assistant can't fetch the cover and every image came up broken.
+  TideSync now skips covers from sources that are turned off and looks up the
+  song's other covers, such as art embedded in your local files. A cover that
+  still fails to load shows the ♫ placeholder instead of a broken image.
+
 ## 2.1.1
 
 ### Fixed

@@ -45,6 +45,8 @@ COVERAGE_MESSAGES = {
     "unsupported": "This Music Assistant version does not report its analysis progress.",
     "error": "Music Assistant did not report its analysis progress.",
 }
+ART_PROVIDERS_EVERY = 300  # re-read which MA providers can serve art
+ART_CACHE_MAX = 2000  # remembered art lookups for tracks whose queue entry had no usable image
 SKIP_FRACTION = 0.5  # stopped before this share of the track = a skip
 UNDO_WINDOW = 300  # seconds during which a block can be undone
 
@@ -53,17 +55,24 @@ def _artist(media: dict[str, Any]) -> str:
     return ", ".join(a.get("name", "") for a in media.get("artists") or [] if a.get("name"))
 
 
-def _image(obj: dict[str, Any] | None) -> str | None:
-    """Album-art URL served through this app (works inside HA ingress)."""
+def _image(obj: dict[str, Any] | None, live: set[str] | None = None) -> str | None:
+    """Album-art URL served through this app (works inside HA ingress).
+
+    ``live`` is the set of Music Assistant providers that are loaded right now.
+    An image owned by any other provider (one that was disabled or removed) is
+    skipped: MA cannot resolve it, so its proxy URL would only ever 404.
+    """
     if not isinstance(obj, dict):
         return None
     candidates = [obj.get("image")]
     media = obj.get("media_item") or {}
     candidates.append(media.get("image"))
-    for holder in (obj, media, media.get("album") or {}):
+    for holder in (obj, media, obj.get("album") or {}, media.get("album") or {}):
         candidates.extend((holder.get("metadata") or {}).get("images") or [])
     for img in candidates:
         if not isinstance(img, dict):
+            continue
+        if live is not None and img.get("provider") and img["provider"] not in live:
             continue
         if img.get("proxy_id"):
             return f"art/{img['proxy_id']}"
@@ -151,6 +160,9 @@ class DJEngine:
         self._last_feedback: tuple[str, float] = ("", 0.0)
         self._last_block: dict[str, Any] | None = None  # what undo_block puts back
         self._ha_vibe_seen: str | None = None
+        self._art_live: tuple[float, set[str] | None] = (float("-inf"), None)
+        self._art_cache: dict[str, str | None] = {}  # track uri -> art URL (None = none found)
+        self._art_lookups = asyncio.Semaphore(6)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -414,6 +426,47 @@ class DJEngine:
         return await self._ma.cmd(
             "player_queues/items", queue_id=self.player_id, limit=200, offset=start
         ) or []
+
+    async def _live_providers(self) -> set[str] | None:
+        """MA providers loaded right now (None when MA would not say: then skip no art)."""
+        checked, live = self._art_live
+        if time.monotonic() - checked < ART_PROVIDERS_EVERY:
+            return live
+        try:
+            providers = await self._ma.cmd("providers")
+        except (MAError, MAUnavailable):
+            providers = None
+        live = ({p["instance_id"] for p in providers if p.get("instance_id") and p.get("available", True)}
+                if isinstance(providers, list) and providers else None)
+        self._art_live = (time.monotonic(), live)
+        return live
+
+    async def _art(self, item: dict[str, Any] | None, live: set[str] | None) -> str | None:
+        """Art for a queue item, looking up the full track when its own image is unusable.
+
+        Queue items carry one image, and MA picks it from whichever provider comes
+        first; when that provider is disabled the image is dead. The full library
+        track lists every provider's images (e.g. art embedded in local files).
+        """
+        if found := _image(item, live):
+            return found
+        media = (item or {}).get("media_item") or {}
+        uri, item_id = media.get("uri"), media.get("item_id")
+        if live is None or media.get("media_type", "track") != "track" or not uri or not item_id:
+            return None
+        if uri in self._art_cache:
+            return self._art_cache[uri]
+        async with self._art_lookups:
+            try:
+                track = await self._ma.cmd("music/tracks/get", item_id=str(item_id),
+                                           provider_instance_id_or_domain=media.get("provider") or "library")
+            except (MAError, MAUnavailable):
+                return None  # not cached: try again on the next refresh
+        found = _image(track, live)
+        if len(self._art_cache) >= ART_CACHE_MAX:
+            self._art_cache.pop(next(iter(self._art_cache)))
+        self._art_cache[uri] = found
+        return found
 
     async def list_players(self) -> list[dict[str, Any]]:
         players = await self._ma.cmd("players/all") or []
@@ -801,8 +854,10 @@ class DJEngine:
             items = await self._ma.cmd("player_queues/items", queue_id=self.player_id, limit=200,
                                        offset=start) or []
         # the dashboard expects the current item first, then what is upcoming
+        live = await self._live_providers()
+        art = await asyncio.gather(*(self._art(it, live) for it in items))
         return {"queue_id": self.player_id, "items_remaining": max(len(items) - 1, 0),
-                "current_index": 0, "items": [track_view(it) for it in items]}
+                "current_index": 0, "items": [{**track_view(it), "image": img} for it, img in zip(items, art)]}
 
     async def search(self, text: str) -> list[dict[str, Any]]:
         return [
@@ -1036,7 +1091,7 @@ class DJEngine:
             "configured": True,
             "claude_enabled": self._planner.enabled,
             "now_playing": _label(item),
-            "album_art": _image(item),
+            "album_art": await self._art(item, await self._live_providers()) if item else None,
             "player_state": (queue.get("state") or player.get("playback_state") or None),
             "volume": player.get("volume_level"),
             "dj_stopped": self._dj_stopped,
